@@ -1,0 +1,68 @@
+# ===========================================================================
+#  .gitignore —— B站视频/音频下载器
+#
+#  原则：本仓库只放源码。编译产物、第三方大文件、本机生成的文件一律不进仓库。
+#
+#  克隆下来之后：
+#    · 扩展本体    → 按《INSTRUCTION.txt》在 chrome://extensions 加载本文件夹即可
+#    · 原生宿主    → 先跑 native-host\build-host.cmd 编译出 host.exe，再跑 install.cmd
+#
+#  注：如果你在上一级目录（工位）执行 git init，请把本文件移到那一层，
+#      并额外加上一行  .workbuddy/   （那是本地工作记录，不属于项目）
+# ===========================================================================
+
+
+# ---------- 编译产物：不提交，让克隆者自己编译 ----------
+# 二进制进仓库没法 code review，而且很容易和 host.cs 不同步。
+# Windows 自带 csc.exe（.NET Framework 4.x），跑 build-host.cmd 即可，无需装 SDK。
+native-host/host.exe
+native-host/com.bilidl.merger.json
+*.exe
+*.pdb
+*.dll
+
+
+# ---------- 第三方大文件 ----------
+# FFmpeg 约 90MB，由 native-host\get-ffmpeg.cmd 按需下载到 bin\
+native-host/bin/
+ffmpeg*.zip
+
+
+# ---------- 测试产生的临时文件 ----------
+# muxer-test.js 会去 B 站拉真实样本到 tests/samples/（约 8MB）
+tests/samples/
+tests/*last-run.txt
+tests/_canceltest.*
+
+
+# ---------- 开发期的一次性脚本与输出 ----------
+# 这些是调试时产生的校验脚本、探测脚本、日志，不属于项目
+__*.txt
+_*.js
+_*.cs
+
+
+# ---------- 打包发布物 ----------
+# 私钥、已打包的扩展包绝不提交
+*.pem
+*.crx
+*.zip
+*.rar
+*.7z
+
+
+# ---------- 依赖目录（本项目零依赖，留作兜底） ----------
+node_modules/
+
+
+# ---------- 日志 ----------
+*.log
+
+
+# ---------- 编辑器与操作系统 ----------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

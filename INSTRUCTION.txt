@@ -1,0 +1,466 @@
+﻿================================================================
+  B站视频/音频下载器 · INSTRUCTION
+  版本 1.16.0   Chrome / Edge 扩展（Manifest V3）
+================================================================
+
+
+【一、它能做什么】
+
+  打开 B 站视频页时，右下角会出现一个下载面板：
+    · 列出这个视频真实可用的画质 / 音质档位，由你自己挑
+    · 三种下载方式：音频、仅视频、视频+音频（自动合并成单个 MP4）
+    · 支持暂停 / 继续 / 取消
+    · 自动识别当前正在播放的分P（多P视频不用手填）
+
+  和普通嗅探插件的区别：它不是猜一个最高清晰度就去下，
+  而是把接口返回的档位全列出来（同一档位还会按 H.264 / HEVC / AV1 分开），
+  你可以为兼容性选 H.264，也可以为省流量选 AV1。
+
+
+【二、安装】
+
+  1. 打开 chrome://extensions
+     （Edge 用 edge://extensions，操作一样）
+
+  2. 打开右上角的「开发者模式」
+
+  3. 点「加载已解压的扩展程序」，选中本文件夹（bili-downloader）
+
+  4. 打开任意 B 站视频页，右下角应出现下载面板
+
+  以后改了代码：回到 chrome://extensions 点扩展卡片上的「重新加载」，
+  再刷新 B 站页面即可生效。
+
+
+【三、界面说明】
+
+  ┌──────────────────────────┐
+  │ 画质  [1080P · H.264 · 1.9M]   │  ← 下拉选择视频档位
+  │ 音质  [192K · AAC · 192kbps]   │  ← 下拉选择音频档位
+  │ [↻ 读取可选档位]                │  ← 手动刷新档位列表
+  ├──────────────────────────┤
+  │ [🎵 音频]                       │  ← 只下音轨（.m4a）
+  │ [🎬 仅视频]                     │  ← 只下画面（.mp4）
+  │ [🎬🎵 视频+音频]                │  ← 自动合并成单个 MP4
+  ├──────────────────────────┤
+  │ [⏸ 暂停]      [✕ 取消]         │  ← 下载中才可用，空闲时是灰的
+  │            ▲                  │  ← 点它收起/展开整个面板
+  └──────────────────────────┘
+
+  档位列表：进页面约 2 秒后自动读取一次，不用手点。
+            同一分P只会读一次，不会因为刷新页面而重置你的选择。
+            没读到就点「↻ 读取可选档位」。
+            点 ↻ 时如果某档拿不到，还会弹窗告诉你原因。
+
+  档位选择会被记住（存在本地），下次打开同类型的视频仍然有效；
+  如果某个视频没有你选的那一档，会自动退回「最高（自动）」。
+
+
+【四、怎么用】
+
+  1. 打开视频页，等右下角档位列表自动填好
+
+  2. （可选）在画质/音质下拉里选想要的档位
+     不选就按「最高（自动）」——它按「档位优先、同档挑码率最高」来选
+
+  3. 点「🎬🎵 视频+音频」
+     → 按钮会依次显示「解析中…」「下载中 xx%」「合并中」
+     → 完成后弹窗告诉你文件在哪、多大多清晰
+
+  4. 中途想停：点「⏸ 暂停」（变成「▶ 继续」），或点「✕ 取消」
+
+  一次只能跑一个下载任务，下载期间三个下载按钮都会被禁用。
+
+
+【五、档位对照表】
+
+  视频档位
+    6     240P        任何人都能下载
+    16    360P        任何人都能下载
+    32    480P        任何人都能下载
+    64    720P        需要登录
+    74    720P60      需要登录
+    80    1080P       需要登录
+    112   1080P+      需要大会员
+    116   1080P60     需要大会员
+    120   4K          需要大会员
+    125   HDR         需要大会员
+    126   杜比视界    需要大会员
+    127   8K          需要大会员
+
+  音频档位
+    30216  64K
+    30232  132K
+    30280  192K
+    30250  杜比全景声      需要大会员
+    30251  Hi-Res 无损     需要大会员 + 仅 APP 端（见第八节）
+
+  ★ 重点：同一种分辨率通常会同时提供 H.264 / HEVC / AV1 三种编码，
+    它们的码率能差好几倍（例如 480P 的 H.264 可能比 1080P 的 AV1 还高）。
+    所以菜单里是按「档位 + 编码」分开列的，例如：
+        「1080P · H.264 · 1.9M」  「1080P · HEVC · 1.4M」  「1080P · AV1 · 1.1M」
+    怎么选：兼容性优先选 H.264；省流量/省空间选 HEVC 或 AV1。
+
+
+【六、文件命名与保存位置】
+
+  文件名规则：
+      视频标题_分P名_p分P号_类型.后缀
+
+  三种类型：
+      _audio.m4a          音频
+      _video_only.mp4     仅视频
+      _merged.mp4         视频+音频合并结果
+
+  例子：
+      某视频_第3话_p3_merged.mp4
+
+  保存位置：
+      · 浏览器内通道   → 浏览器的默认下载目录（可在浏览器设置里改）
+      · 原生 FFmpeg 通道 → %USERPROFILE%\Downloads（系统的「下载」文件夹）
+
+  标题里的 Windows 非法字符（\ / : * ? " < > |）会被剔除，
+  中文、空格、【】（）等全角符号都会保留，不影响可读性。
+
+
+【七、三条下载通道（自动切换，不用你操心）】
+
+  合并下载会按下面顺序自动尝试，前一个失败才换下一个：
+
+    通道 A  原生 FFmpeg 宿主
+            装了 native-host 才有。输出带 faststart，可边下边播。
+            看 native-host\INSTRUCTION.txt 了解安装方法。
+
+    通道 B  浏览器内重封装
+            把视频和音频两条 fMP4 的分片直接拼成一个 MP4。
+            不解码、不转码，毫秒级完成，画质音质零损失。
+            所以即使没装 FFmpeg，普通视频也能拿到单个 MP4。
+
+    通道 C  兜底：分别下载视频和音频两个文件，
+            并弹窗给你一条 FFmpeg 命令行让你自己合。
+
+  下载单条流时也有兜底：页面直连失败会自动改用后台通道，
+  并且会依次尝试 B 站接口一并返回的备用 CDN 地址（有几个试几个）。
+
+
+【八、常见问题】
+
+  Q：画质只有 480P？
+     A：未登录。B 站对未登录账号最高只给 480P。
+        登录后能拿到 1080P，大会员才能拿到 4K / 8K / HDR / 杜比视界。
+        控制台会打印 [bili-dl] 账号状态：... 可以直接看当前状态。
+
+  Q：选不到 4K / 8K / HDR？
+     A：需要大会员。另外杜比视界（126）在普通播放器上可能偏色，
+        介意的话改选 4K 或 HDR。
+
+  Q：检测不到 Hi-Res 无损音质？
+     A：这不是插件的问题。已实测确认：该音轨属于 APP 端功能，
+        网页接口不下发 —— 换参数、甚至照抄网页播放器自己发的那条请求，
+        拿到的 flac.audio 都是 null。
+        网页端能拿到的最高音质是杜比全景声（若该视频有）或 192K AAC。
+
+  Q：下载出来 0 字节 / 一直失败？
+     A：B 站 CDN 的防盗链。扩展会自动改用后台通道重试，
+        也会自动换备用 CDN 地址。若都不行，可能是该视频有额外限制。
+
+  Q：合并出来的 MP4 播放器打不开，或者只有声音没画面？
+     A：多半是选了 AV1 / HEVC 而播放器不支持。
+        在相同位置把画质改选成 H.264 的同一档，重新下载即可。
+        （Windows 自带播放器对 AV1/HEVC 支持有限，推荐 VLC / mpv / PotPlayer）
+
+  Q：暂停之后进度条不动了，是卡死了吗？
+     A：不是，暂停就是真的停住读取（实测进度会完全静止），
+        点「▶ 继续」会立刻接着跑。
+        注意别暂停太久 —— 时间长了 CDN 可能把连接断掉，建议几分钟内恢复。
+
+  Q：面板挡住视频了 / 想关掉？
+     A：点最下面的「▲」收起，档位菜单和按钮会一起折叠。
+        位置固定在右下角，不会跟着页面滚动跑。
+
+  Q：换了分P之后档位没更新？
+     A：切分P后会自动重新读取（B 站是单页应用，切P不刷新页面，
+        扩展监听了地址变化）。没更新就点一下 ↻。
+
+
+【九、权限说明】
+
+  这个扩展申请了下面这些权限，用途如下：
+
+    · 访问 bilibili.com 与视频 CDN
+        取流和下载。下载的是你自己在网页上能播放的内容。
+
+    · declarativeNetRequest / declarativeNetRequestWithHostAccess
+        B 站 CDN 会校验 Referer 和 Origin。这两个头属于浏览器的
+        「禁止修改头」，fetch 里写会被丢弃，必须在请求发出前改写。
+
+    · nativeMessaging
+        调用本机 FFmpeg 做合并。属于可选功能 ——
+        没装 native-host 就完全用不到，不影响其它功能。
+
+    · host_permissions: *://*/*
+        用于向 B 站 CDN 取流（CDN 域名是动态的）。
+        代码实际只请求 bilibili 相关域名，不会访问其它网站。
+
+
+【十、日志与排错】
+
+  · 页面控制台（F12）
+      所有日志以 [bili-dl] 开头，包括：
+        账号状态（是否登录 / 是否大会员 / WBI 密钥）
+        接口返回的完整画质、音质档位清单
+        每个下载通道的结果、备用地址切换情况
+
+  · 原生宿主日志
+      %TEMP%\bilidl_host.log
+      （%TEMP% 一般是 C:\Users\你的用户名\AppData\Local\Temp）
+
+
+【十一、目录结构】
+
+  manifest.json     扩展清单
+  content.js        页面脚本：面板 UI + 档位解析 + 下载与合并流程
+  background.js     后台 Service Worker：兜底下载通道（改写请求头 + 分块回传）
+  quality.js        画质/音质选择逻辑（档位排序、编码识别）
+  wbi.js            B 站 WBI 签名
+  muxer.js          分片 MP4 重封装（浏览器内合并用）
+  native-host/      可选：原生 FFmpeg 合并宿主
+                    详见 native-host\INSTRUCTION.txt
+  INSTRUCTION.txt     本文件
+
+
+================================================================
+======================= English version ========================
+================================================================
+
+================================================================
+  Bilibili Video & Audio Downloader · INSTRUCTION
+  Version 1.16.0   Chrome / Edge extension (Manifest V3)
+================================================================
+
+
+【1. What it does】
+
+  Opening a Bilibili video page brings up a download panel in the bottom-right corner:
+    · lists the quality / audio tiers this video really offers, for you to pick from
+    · three download modes: audio only, video only, video + audio (auto-merged into one MP4)
+    · pause / resume / cancel
+    · detects the part you are watching (no manual entry for multi-part videos)
+
+  Unlike a typical stream sniffer it does not just guess the highest resolution,
+  it lists every tier the API returns (and splits one tier by H.264 / HEVC / AV1),
+  so you can pick H.264 for compatibility or AV1 to save bandwidth.
+
+
+【2. Install】
+
+  1. Open chrome://extensions
+        (Edge uses edge://extensions; same steps)
+
+  2. Switch on "Developer mode" in the top-right corner
+
+  3. Click "Load unpacked" and select this folder (bili-downloader)
+
+  4. Open any Bilibili video page -- the panel should appear in the bottom-right corner
+
+  After editing the code: go back to chrome://extensions, click "Reload" on the extension card,
+  then refresh the Bilibili page.
+
+
+【3. The panel】
+
+  ┌──────────────────────────┐
+  │ Quality [1080P · H.264 · 1.9M]  │  <- pick the video tier
+  │ Audio   [192K · AAC · 192kbps]  │  <- pick the audio tier
+  │ [↻ refresh tiers]              │  <- refresh the tier list manually
+  ├──────────────────────────┤
+  │ [🎵 audio]                     │  <- audio only (.m4a)
+  │ [🎬 video only]                │  <- video only (.mp4)
+  │ [🎬🎵 video + audio]           │  <- auto-merge into one MP4
+  ├──────────────────────────┤
+  │ [⏸ pause]     [✕ cancel]       │  <- only while downloading; greyed out when idle
+  │            ▲                  │  <- collapse / expand the whole panel
+  └──────────────────────────┘
+
+  Tier list: fetched automatically about 2 seconds after the page loads; no clicking needed.
+            Fetched once per part, so refreshing the page will not reset your choice.
+            If nothing shows up, click "↻ refresh tiers".
+            When a tier is unavailable, clicking ↻ pops up an explanation of why.
+
+  Your choice is remembered locally and still applies the next time you open a similar video;
+  if a video lacks the tier you picked, it falls back to "best (auto)".
+
+
+【4. Usage】
+
+  1. Open a video page and wait for the tier list to fill in
+
+  2. (Optional) pick the tier you want from the quality / audio dropdowns
+        Skip it and "best (auto)" applies: highest tier first, then highest bitrate within that tier
+
+  3. Click "🎬🎵 video + audio"
+        -> the button shows "parsing…", "downloading xx%", then "merging"
+        -> a dialog tells you where the file is, its size and its specification
+
+  4. To stop midway: click "⏸ pause" (it becomes "▶ resume") or "✕ cancel"
+
+  Only one download runs at a time; all three download buttons are disabled while it does.
+
+
+【5. Tier reference】
+
+  Video tiers
+    6     240P        anyone
+    16    360P        anyone
+    32    480P        anyone
+    64    720P        login required
+    74    720P60      login required
+    80    1080P       login required
+    112   1080P+      premium membership
+    116   1080P60     premium membership
+    120   4K          premium membership
+    125   HDR         premium membership
+    126   Dolby Vision  premium membership
+    127   8K          premium membership
+
+  Audio tiers
+    30216  64K
+    30232  132K
+    30280  192K
+    30250  Dolby Atmos     premium membership
+    30251  Hi-Res lossless premium membership + app-only (see section 8)
+
+  ★ Key point: one resolution usually ships in three codecs -- H.264 / HEVC / AV1 --
+       whose bitrates differ several-fold (480P H.264 can outrank 1080P AV1).
+       That is why the menu lists "tier + codec" separately, for example:
+        「1080P · H.264 · 1.9M」  「1080P · HEVC · 1.4M」  「1080P · AV1 · 1.1M」
+       Which to pick: H.264 for compatibility; HEVC or AV1 to save bandwidth and disk space.
+
+
+【6. Filenames and save location】
+
+  Filename pattern:
+      video title_part name_p<part number>_<kind>.<ext>
+
+  Three kinds:
+      _audio.m4a          audio
+      _video_only.mp4     video only
+      _merged.mp4         merged video + audio
+
+  Example:
+      Some Show_Episode 3_p3_merged.mp4
+
+  Save location:
+      · in-browser channel  -> your browser's default download folder (configurable in browser settings)
+      · native FFmpeg channel -> %USERPROFILE%\Downloads (your system Downloads folder)
+
+  Characters Windows forbids (\ / : * ? " < > |) are stripped from titles,
+  while CJK, spaces and full-width punctuation such as 【】（） are kept, so titles stay readable.
+
+
+【7. Three download channels (switched automatically)】
+
+  Merged downloads try these in order, moving on only when one fails:
+
+    Channel A  native FFmpeg host
+                      Requires native-host. Output is faststart-enabled, so it plays while downloading.
+                      See native-host\INSTRUCTION.txt for the install steps.
+
+    Channel B  in-browser remux
+                      Splices the video and audio fMP4 fragments straight into one MP4.
+                      No decoding, no re-encoding, done in milliseconds, nothing lost.
+                      So even without FFmpeg you still get a single MP4 for ordinary videos.
+
+    Channel C  last resort: downloads video and audio as two files
+                      and pops up an FFmpeg command line for you to merge them yourself.
+
+  Single streams fall back too: if the direct page fetch fails it switches to the background channel,
+  and it tries every backup CDN address the API returned alongside (as many as there are).
+
+
+【8. FAQ】
+
+  Q: Only 480P available?
+     A: You are not logged in. Bilibili caps anonymous accounts at 480P.
+            Logged in you get 1080P; 4K / 8K / HDR / Dolby Vision need a premium membership.
+            The console prints "[bili-dl] account state: …" so you can check at a glance.
+
+  Q: Cannot get 4K / 8K / HDR?
+     A: They require a premium membership. Note Dolby Vision (126) can shift colours on plain players,
+            so pick 4K or HDR instead if that bothers you.
+
+  Q: Hi-Res lossless audio never shows up?
+     A: That is not an extension bug. Measured: the track is an app-only feature and the
+            web API never serves it -- changing parameters, or even replaying the web player's own request
+            verbatim, still returns flac.audio = null.
+            The best the web side offers is Dolby Atmos (when the video has it) or 192K AAC.
+
+  Q: Zero bytes / keeps failing?
+     A: CDN hotlink protection. The extension retries through the background channel automatically
+            and switches to backup CDN addresses. If all fail the video may carry extra restrictions.
+
+  Q: The merged MP4 will not open, or has sound but no picture?
+     A: You most likely picked AV1 / HEVC and your player does not support it.
+            Re-download the same tier with H.264 selected instead.
+            (Windows' built-in player has limited AV1/HEVC support; VLC / mpv / PotPlayer are recommended.)
+
+  Q: The progress froze after pausing -- is it stuck?
+     A: No. Pausing really does stop the reads (progress stays completely still in testing);
+            clicking "▶ resume" picks straight back up.
+            Do not pause for too long though -- the CDN may drop the connection; a few minutes is safe.
+
+  Q: The panel covers the video -- how do I hide it?
+     A: Click the "▲" at the bottom; the tier menus and buttons collapse together.
+            It stays pinned to the bottom-right and never scrolls away.
+
+  Q: Switching parts did not refresh the tiers?
+     A: It re-fetches on a part switch (Bilibili is a SPA, so switching parts does not reload the page;
+            the extension watches the URL). If nothing changes, click ↻.
+
+
+【9. Permissions】
+
+  The extension requests the following permissions, for these reasons:
+
+    · Access to bilibili.com and the video CDNs
+          Fetching and downloading. What you download is what you can already play in the page.
+
+    · declarativeNetRequest / declarativeNetRequestWithHostAccess
+          The Bilibili CDN checks Referer and Origin. Both are forbidden header names,
+          so setting them in fetch is dropped -- they must be rewritten before the request leaves.
+
+    · nativeMessaging
+          Calls your local FFmpeg to merge. Optional --
+          without native-host installed it is never used, and nothing else is affected.
+
+    · host_permissions: *://*/*
+          Used to fetch streams from the Bilibili CDNs (whose hostnames are dynamic).
+          The code only ever requests bilibili-related hosts and touches no other site.
+
+
+【10. Logs and troubleshooting】
+
+  · Page console (F12)
+        Every line starts with [bili-dl], including:
+          account state (logged in? premium? WBI keys?)
+          the full list of video and audio tiers the API returned
+          the result of each download channel and any backup-URL failover
+
+  · Native host log
+      %TEMP%\bilidl_host.log
+        (%TEMP% is usually C:\Users\<you>\AppData\Local\Temp)
+
+
+【11. Layout】
+
+  manifest.json     extension manifest
+  content.js        page script: panel UI, tier parsing, download and merge flow
+  background.js     background Service Worker: fallback channel (header rewrite + chunk relay)
+  quality.js        tier selection logic (ordering, codec detection)
+  wbi.js            Bilibili WBI signature
+  muxer.js          fragmented-MP4 remux (used for in-browser merging)
+  native-host/      optional: native FFmpeg merge host
+                                      see native-host\INSTRUCTION.txt
+  INSTRUCTION.txt   this file
+
+================================================================

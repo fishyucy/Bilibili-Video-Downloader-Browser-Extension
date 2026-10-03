@@ -1,0 +1,294 @@
+﻿================================================================
+  native-host —— 原生 FFmpeg 合并宿主 · INSTRUCTION
+================================================================
+
+【这个文件夹是干什么的】
+
+  可选组件。装了它，「视频+音频」下载完成后会调用你本机的 FFmpeg 做合并。
+
+  和「浏览器内重封装」相比，走原生通道多两个好处：
+    · 输出带 faststart（moov 盒子前置），可以边下边播
+    · 输出路径固定可控（默认是「下载」文件夹）
+
+  不装也完全能用 —— 浏览器内重封装同样能合成一个 MP4，
+  只是没有 faststart，且大文件在部分播放器上可能要等一会儿才能拖动进度条。
+
+
+【文件一览】
+
+  安装 / 卸载
+    install.cmd          安装入口（推荐双击这个）
+    install.ps1          实际干活的安装脚本
+    uninstall.cmd        卸载入口
+    uninstall.ps1        实际干活的卸载脚本
+
+  程序本体
+    host.exe             宿主程序（扩展通过 Native Messaging 调用它）
+    host.cs              宿主源码（只有要自己重新编译时才需要）
+    build-host.cmd       用 .NET Framework 的 csc 把 host.cs 编译成 host.exe
+
+  FFmpeg
+    get-ffmpeg.cmd       下载 FFmpeg 入口
+    get-ffmpeg.ps1       实际干活的下载脚本
+    bin\ffmpeg.exe       真正干活的 FFmpeg（安装/下载后才会出现）
+
+
+【安装（三步）】
+
+  1. 双击 install.cmd          （不需要管理员权限，写的是当前用户注册表）
+     它会依次做三件事：
+       ① 生成宿主清单 com.bilidl.merger.json，里面指向 host.exe 的绝对路径
+       ② 在 HKCU 下注册三个浏览器：Chrome / Edge / Chromium（用不到的没有影响）
+       ③ 检查 FFmpeg，找不到会问你要不要现在自动下载
+
+  2. 打开 chrome://extensions，点扩展卡片上的「重新加载」
+     （如果还没加载过扩展：先按上级目录的《INSTRUCTION.txt》把扩展加载进来）
+
+  3. 刷新任意 B 站视频页面
+
+  卸载：双击 uninstall.cmd，会删掉注册表项和宿主清单。
+        host.exe 与 bin\ 不会被删除，需要的话手动删掉即可。
+
+
+【FFmpeg 从哪来】
+
+  默认从 GitHub 的 BtbN/FFmpeg-Builds 下载 win64-gpl 静态构建（约 90MB），
+  下载后只把里面的 ffmpeg.exe 抽出来放到 bin\ 下。
+
+  宿主查找 FFmpeg 的顺序是：
+    ① 环境变量 BILIDL_FFMPEG 指定的路径
+    ② native-host\bin\ffmpeg.exe
+    ③ 系统 PATH 里的 ffmpeg
+
+  所以：如果你电脑里已经装了 FFmpeg 并加进了 PATH，就不用再下一份。
+  想指定某个特定版本，设置环境变量 BILIDL_FFMPEG 指向它的绝对路径即可。
+
+
+【怎么确认装好了】
+
+  · 刷新 B 站页面，点面板上的「视频+音频」，观察按钮文字：
+      显示「FFmpeg 合并中…」  → 走的是原生宿主通道，装好了
+      显示「合并中…」         → 走的是浏览器内重封装，说明没调用到宿主
+  · 若走了浏览器内通道，控制台（F12）会打印没走通的原因，例如：
+      [bili-dl] 未检测到原生宿主，使用浏览器内重封装：未找到 ffmpeg.exe
+  · 宿主自己的日志在：%TEMP%\bilidl_host.log
+    （%TEMP% 一般是 C:\Users\你的用户名\AppData\Local\Temp）
+    里面会记录每次收到的合并请求和 FFmpeg 的报错
+  · 完成后弹窗标题会写「（原生 FFmpeg）」还是「（浏览器内重封装，无转码）」，
+    据此也能判断走的是哪条通道
+
+
+【宿主具体做了什么】
+
+  收到扩展的合并请求后：
+    1. 用带 Referer/Origin 的请求，把视频流和音频流分别下到 %TEMP% 的临时文件
+    2. 调用 FFmpeg 合并，命令等价于：
+         ffmpeg -hide_banner -nostdin -y -loglevel error -i 视频 -i 音频
+                -c copy -movflags +faststart 输出.mp4
+       -c copy 表示不转码、直接复制，所以几秒钟就能完成，画质音质零损失
+    3. 删除临时文件，把结果路径回报给扩展
+
+  输出位置：默认 %USERPROFILE%\Downloads
+    也可以用环境变量 BILIDL_OUTDIR 指定别的目录。
+
+
+【暂停 / 取消是怎么生效的】
+
+  面板上的「暂停」「取消」会一路转发到宿主：
+    · 暂停 = 停止继续读取网络流（TCP 会自然反压，服务器那头就慢下来）
+    · 取消 = 抛异常中止下载，并且杀掉正在跑的 FFmpeg，最后清理临时文件
+  宿主用一个独立的读取线程专门收这些控制指令，
+  所以即使主线程正忙着下载、读不到新消息，暂停/取消也能立即生效。
+
+
+【常见问题】
+
+  Q：提示「未找到 ffmpeg.exe」
+     A：跑一次 get-ffmpeg.cmd，或者自己把 ffmpeg.exe 放到 native-host\bin\ 下。
+
+  Q：提示「原生宿主连接中断」
+     A：多半是宿主清单里的路径不对。重新跑一次 install.cmd 即可。
+
+  Q：移动过这个文件夹 / 改了文件夹名
+     A：必须重新运行 install.cmd —— 宿主清单里存的是安装时的绝对路径。
+
+  Q：路径里有中文或空格会有问题吗
+     A：不会，脚本全程用引号包裹并走 -LiteralPath，已经处理过了。
+
+  Q：合并很慢 / 一直卡在「下载中」
+     A：合并本身不转码，正常几秒内结束；卡在下载阶段是网络问题，
+        可以点取消后重试（会自动换备用 CDN 地址）。
+
+  Q：FFmpeg 下载失败
+     A：GitHub 在国内偶尔连不上。可以手动下载后把 ffmpeg.exe 放进 bin\，
+        或设置 BILIDL_FFMPEG 环境变量指向已有的 ffmpeg.exe。
+
+
+【安全性说明】
+
+  · 宿主只做两件事：按扩展给定的 URL 下载到 %TEMP%、调用 FFmpeg 合并
+  · 不做任何其它网络请求，不读取其它文件，不上传任何数据
+  · 每次合并结束（包括取消、失败）都会删除临时文件
+  · 安装只写当前用户的注册表（HKCU），不需要管理员权限，不碰系统目录
+
+
+【要改源码的话】
+
+  双击 build-host.cmd 重新编译。
+
+  注意两点：
+    · host.cs 必须以 UTF-8 带 BOM 保存。csc 默认按 ANSI 读取，
+      没有 BOM 的话源码里的中文会变成乱码（日志和错误提示会花掉）
+    · 编译用的是系统自带的 .NET Framework（C:\Windows\Microsoft.NET\
+      Framework64\v4.0.30319\csc.exe），不需要装 .NET SDK
+
+
+================================================================
+======================= English version ========================
+================================================================
+
+================================================================
+  native-host -- native FFmpeg merge host · INSTRUCTION
+================================================================
+
+【What this folder is for】
+
+  An optional component. With it installed, "video + audio" downloads are merged by your local FFmpeg.
+
+  Compared with the in-browser remux, the native channel buys you two things:
+    · faststart output (the moov box moved to the front), so it plays while still downloading
+    · a predictable output path (your Downloads folder by default)
+
+  Everything still works without it -- the in-browser remux also produces a single MP4,
+  just without faststart; on some players a large file takes a moment before you can seek.
+
+
+【Files】
+
+  Install / uninstall
+    install.cmd          install entry point (double-click this one)
+    install.ps1          the script that does the work
+    uninstall.cmd        uninstall entry point
+    uninstall.ps1        the script that does the work
+
+  The program itself
+    host.exe             the host program the extension calls over Native Messaging
+    host.cs              host source (only needed if you rebuild it)
+    build-host.cmd       compiles host.cs into host.exe with the .NET Framework csc
+
+  FFmpeg
+    get-ffmpeg.cmd       FFmpeg download entry point
+    get-ffmpeg.ps1       the script that does the work
+    bin\ffmpeg.exe       the FFmpeg doing the real work (appears after install / download)
+
+
+【Install (three steps)】
+
+  1. Double-click install.cmd   (no admin rights needed; it writes the current user's registry)
+        It does three things, in order:
+          1) writes the host manifest com.bilidl.merger.json pointing at host.exe's absolute path
+          2) registers three browsers under HKCU: Chrome / Edge / Chromium (unused ones do no harm)
+          3) looks for FFmpeg and, if missing, asks whether to download it now
+
+  2. Open chrome://extensions and click "Reload" on the extension card
+        (If the extension is not loaded yet, follow the INSTRUCTION.txt in the parent folder first.)
+
+  3. Refresh any Bilibili video page
+
+  Uninstall: double-click uninstall.cmd to remove the registry keys and the host manifest.
+              host.exe and bin\ are left in place; delete them by hand if you wish.
+
+
+【Where FFmpeg comes from】
+
+  By default it downloads the win64-gpl static build from GitHub's BtbN/FFmpeg-Builds (~90MB)
+  and extracts just ffmpeg.exe into bin\.
+
+  The host looks for FFmpeg in this order:
+    1) the path in the BILIDL_FFMPEG environment variable
+    ② native-host\bin\ffmpeg.exe
+    3) ffmpeg found on the system PATH
+
+  So if FFmpeg is already installed and on your PATH, there is no need to download another copy.
+  To pin a specific build, point the BILIDL_FFMPEG environment variable at its absolute path.
+
+
+【How to tell it worked】
+
+  · Refresh the Bilibili page, click "video + audio" and watch the button text:
+        "FFmpeg merging…"  -> the native host channel is running, you are set
+        "merging…"         -> the in-browser remux ran, so the host was not reached
+  · If it fell back to the in-browser channel, the console (F12) prints the reason, for example:
+        [bili-dl] native host not detected, using the in-browser remux: ffmpeg.exe not found
+  · The host's own log lives at %TEMP%\bilidl_host.log
+      (%TEMP% is usually C:\Users\<you>\AppData\Local\Temp)
+      It records every merge request received and any FFmpeg error.
+  · The completion dialog is titled either "(native FFmpeg)" or "(in-browser remux, no re-encode)",
+      which tells you which channel ran.
+
+
+【What the host actually does】
+
+  On receiving a merge request from the extension:
+    1. downloads the video and audio streams into %TEMP% temp files, with Referer/Origin attached
+    2. calls FFmpeg to merge, with a command equivalent to:
+            ffmpeg -hide_banner -nostdin -y -loglevel error -i video -i audio
+                          -c copy -movflags +faststart output.mp4
+          -c copy copies instead of re-encoding, so it finishes in seconds and loses nothing
+    3. deletes the temp files and reports the output path back to the extension
+
+  Output location: %USERPROFILE%\Downloads by default
+       Set the BILIDL_OUTDIR environment variable to use a different folder.
+
+
+【How pause / cancel work】
+
+  The panel's "pause" and "cancel" are forwarded all the way to the host:
+    · pause  = stop reading the network stream (TCP back-pressure slows the server naturally)
+    · cancel = abort the download, kill any running FFmpeg, then clean up the temp files
+  The host uses a dedicated reader thread for these control commands,
+  so pause/cancel take effect immediately even while the main thread is busy downloading.
+
+
+【FAQ】
+
+  Q: "ffmpeg.exe not found"
+     A: Run get-ffmpeg.cmd once, or drop ffmpeg.exe into native-host\bin\ yourself.
+
+  Q: "native host connection lost"
+     A: The path in the host manifest is usually wrong. Just re-run install.cmd.
+
+  Q: I moved or renamed this folder
+     A: You must re-run install.cmd -- the host manifest stores the absolute path from install time.
+
+  Q: Do CJK characters or spaces in the path cause problems?
+     A: No. The scripts quote every path and use -LiteralPath throughout.
+
+  Q: Merging is slow / stuck on "downloading"
+     A: Merging does not re-encode and finishes in seconds; being stuck downloading is a network
+           issue -- cancel and retry (it switches to a backup CDN automatically).
+
+  Q: The FFmpeg download fails
+     A: GitHub is occasionally unreachable. Download it manually, put ffmpeg.exe into bin\,
+           or point the BILIDL_FFMPEG environment variable at an ffmpeg.exe you already have.
+
+
+【Security】
+
+  · The host does exactly two things: download the given URLs into %TEMP% and call FFmpeg to merge
+  · It makes no other network requests, reads no other files and uploads nothing
+  · Temp files are removed after every merge, cancelled and failed runs included
+  · Installing only writes HKCU, needs no admin rights and never touches system folders
+
+
+【If you want to modify the source】
+
+  Double-click build-host.cmd to rebuild.
+
+  Two things to note:
+    · host.cs must be saved as UTF-8 with a BOM. csc reads ANSI by default, so without one
+        the CJK text in the source turns into mojibake (logs and error messages become garbage)
+    · The build uses the .NET Framework bundled with Windows (C:\Windows\Microsoft.NET\
+        Framework64\v4.0.30319\csc.exe); no .NET SDK is required
+
+================================================================
