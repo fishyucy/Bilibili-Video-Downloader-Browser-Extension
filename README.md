@@ -35,11 +35,34 @@
 
 ## 安装
 
-1. 下载或克隆本仓库
-2. 打开 `chrome://extensions`（Edge 用 `edge://extensions`）
-3. 打开右上角「开发者模式」
-4. 点「加载已解压的扩展程序」，选择本文件夹
-5. 打开任意 B 站视频页，右下角出现面板即可用
+这是 Chromium 内核扩展（Manifest V3），Chromium 系浏览器都用「加载已解压的扩展程序」这种方式安装。
+
+> 用 release 里的压缩包的话：**先解压**，再选解压出来的那个文件夹。
+
+### 各浏览器加载步骤
+
+| 浏览器 | 扩展管理页 | 备注 |
+|---|---|---|
+| **Chrome** | `chrome://extensions` | 右上角先打开「开发者模式」 |
+| **Edge** | `edge://extensions` | 左侧先打开「开发人员模式」 |
+| **Brave** | `brave://extensions` | 同 Chrome |
+| **Vivaldi** | `vivaldi://extensions` | 同 Chrome |
+| **Opera** | `opera://extensions` | 需先开启「开发者模式」 |
+| **360 / QQ / 搜狗 等国产浏览器** | 通常也是 `chrome://extensions` | 部分版本要先在设置里打开「开发者选项」；需切到「极速模式」 |
+| **Firefox** | — | **不支持**：本扩展用的是 Chrome 的 MV3 写法（service worker 后台 + declarativeNetRequest），Firefox 的 manifest 结构不同，无法直接加载 |
+
+**通用四步**（Chrome 为例）：
+
+1. 地址栏输入 `chrome://extensions` 回车
+2. 打开页面右上角的「开发者模式」
+3. 点「加载已解压的扩展程序」，**选中本文件夹**（选文件夹，不是选单个文件）
+4. 打开任意 B 站视频页，右下角出现下载面板即安装成功
+
+**三个注意点**：
+
+- 选的是**文件夹**，不是 `.zip` 压缩包 —— Chrome 不接受 zip，必须先解压
+- 加载后**不要移动或删除**这个文件夹，否则扩展会失效（必要时重新加载一次即可）
+- 改了代码后：回到扩展管理页点该扩展卡片上的「重新加载」，再刷新 B 站页面
 
 ### 可选：原生 FFmpeg（合并更好）
 
@@ -148,11 +171,34 @@ Unlike "sniff the highest quality" tools it does not guess: whatever the API han
 
 ## Install
 
-1. Download or clone this repository
-2. Open `chrome://extensions` (Edge: `edge://extensions`)
-3. Turn on **Developer mode**
-4. Click **Load unpacked** and select this folder
-5. Open any Bilibili video page — the panel appears in the bottom-right corner
+This is a Chromium extension (Manifest V3), so every Chromium-based browser installs it the same way: **Load unpacked**.
+
+> Using the ZIP from Releases? **Unzip it first**, then select the unzipped folder.
+
+### Loading it in each browser
+
+| Browser | Extensions page | Notes |
+|---|---|---|
+| **Chrome** | `chrome://extensions` | Turn on **Developer mode** (top-right) |
+| **Edge** | `edge://extensions` | Turn on **Developer mode** (left rail) |
+| **Brave** | `brave://extensions` | Same as Chrome |
+| **Vivaldi** | `vivaldi://extensions` | Same as Chrome |
+| **Opera** | `opera://extensions` | Enable **Developer mode** first |
+| **360 / QQ / Sogou (Chinese Chromium builds)** | usually `chrome://extensions` | Some versions need "Developer options" enabled in settings; must be in "Speed/Blink mode" |
+| **Firefox** | — | **Not supported**: this extension uses Chrome's MV3 model (service-worker background + declarativeNetRequest); Firefox's manifest differs, so it cannot be loaded as-is |
+
+**Four steps** (Chrome shown):
+
+1. Type `chrome://extensions` in the address bar
+2. Turn on **Developer mode** in the top-right corner
+3. Click **Load unpacked** and **select this folder** (the folder, not a single file)
+4. Open any Bilibili video page — the panel appearing bottom-right means it worked
+
+**Three things to watch out for:**
+
+- Select the **folder**, not the `.zip` — Chrome cannot load a zip, so unzip first
+- Do not move or delete the folder afterwards, or the extension stops working (just load it again if you must)
+- After editing code: click **Reload** on the extension card, then refresh the Bilibili page
 
 ### Optional: native FFmpeg
 
