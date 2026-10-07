@@ -22,6 +22,14 @@
 (function () {
     'use strict';
 
+    // 启动横幅：装好后控制台第一行就能看到版本号，方便确认浏览器跑的是哪份代码
+    // Startup banner: the version shows up on the first console line, making it obvious which
+    // copy of the code the browser actually loaded
+    let EXT_VERSION = '?';
+    try { EXT_VERSION = chrome.runtime.getManifest().version; } catch (e) { /* 扩展上下文异常 / extension context gone */ }
+    console.log('[bili-dl] 内容脚本已加载 v' + EXT_VERSION + '（' + location.href.split('?')[0] + '）');
+
+
     // ===================== 工具函数 =====================
     // ===================== Utilities =====================
     // 只剔除 Windows 文件名真正非法的字符，保留中文、空格和【】（）等全角符号，保证标题可读
