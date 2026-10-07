@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器 · INSTRUCTION
-  版本 1.17.0   Chrome / Edge 扩展（Manifest V3）
+  版本 1.17.1   Chrome / Edge 扩展（Manifest V3）
 ================================================================
 
 
@@ -194,6 +194,12 @@
         扩展监听了地址变化）。没更新就点一下 ↻。
 
 
+  Q：下载完成了，却没看到提示弹窗？
+    A：这个页面被放进了沙箱 iframe，浏览器会禁止这种页面弹窗
+       （控制台会报 "The document is sandboxed, and the 'allow-modals' keyword is not set"）。
+       这种情况扩展会自动改成右下角浮层提示（点一下可关掉），文件本身已经下载好了。
+
+
 【九、权限说明】
 
   这个扩展申请了下面这些权限，用途如下：
@@ -246,7 +252,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader · INSTRUCTION
-  Version 1.17.0   Chrome / Edge extension (Manifest V3)
+  Version 1.17.1   Chrome / Edge extension (Manifest V3)
 ================================================================
 
 
@@ -442,6 +448,13 @@
   Q: Switching parts did not refresh the tiers?
      A: It re-fetches on a part switch (Bilibili is a SPA, so switching parts does not reload the page;
             the extension watches the URL). If nothing changes, click ↻.
+
+
+  Q: The download finished but no dialog appeared?
+    A: This page sits inside a sandboxed iframe, and browsers block dialogs there
+       (the console says "The document is sandboxed, and the 'allow-modals' keyword is not set").
+       The extension falls back to a toast in the bottom-right corner (click to dismiss);
+       the file itself is already downloaded.
 
 
 【9. Permissions】

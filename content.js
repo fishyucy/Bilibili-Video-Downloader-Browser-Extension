@@ -37,6 +37,55 @@
         return cleaned.slice(0, len) || 'bilibili_video';
     }
 
+    // 统一提示出口。页面有可能被放进沙箱 iframe，此时 alert() 会被浏览器拦下并抛异常
+    // （"The document is sandboxed, and the 'allow-modals' keyword is not set"），
+    // 那样连「下载成功」的提示都会变成报错。所以：能用 alert 就用（保持原体验），被拦就退回页面内浮层。
+    // Single exit point for messages. The page can sit inside a sandboxed iframe where alert()
+    // is blocked and throws ("The document is sandboxed, and the 'allow-modals' keyword is not
+    // set") -- which would turn even a "download finished" notice into an error. So: use alert
+    // when allowed, otherwise fall back to an in-page toast.
+    function notify(msg) {
+        try {
+            window.alert(msg);
+            return;
+        } catch (e) {
+            // 沙箱化文档不允许弹窗，改用浮层 / sandboxed: no modals allowed, use the toast
+        }
+        showToast(String(msg));
+    }
+
+    // 页面内浮层：不依赖面板样式，也不需要 allow-modals 权限；点一下可关掉
+    // In-page toast: independent of the panel styles, needs no allow-modals, click to dismiss
+    function showToast(msg) {
+        try {
+            let box = document.getElementById('bili-dl-toast');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'bili-dl-toast';
+                box.style.cssText = [
+                    'position:fixed', 'right:18px', 'bottom:18px', 'z-index:2147483647',
+                    'max-width:420px', 'max-height:60vh', 'overflow:auto',
+                    'padding:12px 14px', 'border-radius:8px',
+                    'background:rgba(20,24,32,.96)', 'color:#fff',
+                    'font:12px/1.6 Consolas,Menlo,monospace', 'white-space:pre-wrap',
+                    'box-shadow:0 8px 28px rgba(0,0,0,.5)', 'border:1px solid rgba(0,161,214,.6)',
+                    'cursor:pointer'
+                ].join(';');
+                box.title = '点击关闭';
+                box.addEventListener('click', () => { box.style.display = 'none'; });
+                document.body.appendChild(box);
+            }
+            box.textContent = msg;
+            box.style.display = 'block';
+            clearTimeout(showToast._timer);
+            showToast._timer = setTimeout(() => { box.style.display = 'none'; }, 12000);
+        } catch (e) {
+            // 连浮层都插不进去（极罕见），至少保证控制台有记录
+            // If even the toast cannot be inserted (very rare), at least log it
+            console.log('[bili-dl] 提示：' + msg);
+        }
+    }
+
     // 从页面标题兜底解析视频主标题（接口取不到时才用）
     // Fallback: parse the main title from the page title (used only when the API gives none)
     function parseMainTitleFromDocument() {
@@ -793,7 +842,7 @@
             const hires = Q.describeHiRes(dash);
             const isVip = !!(navCache.account && navCache.account.vipStatus);
             if (hires.indexOf('当前账号拿不到') > 0) {
-                alert(isVip
+                notify(isVip
                     ? '提示：这个视频有无损（Hi-Res）音轨，但网页端拿不到。\n\n' +
                       '已实测确认：Hi-Res 属于 APP 端功能，网页接口不下发这条音轨' +
                       '（换参数、乃至照抄网页播放器自己的请求都拿不到）。\n\n' +
@@ -801,12 +850,12 @@
                     : '提示：这个视频有无损（Hi-Res）音轨，但当前账号拿不到。\n' +
                       'Hi-Res 与杜比全景声都需要大会员。');
             } else if (hires.indexOf('该视频没有') === 0) {
-                alert('提示：这个视频没有提供 Hi-Res 无损音轨。\n' +
+                notify('提示：这个视频没有提供 Hi-Res 无损音轨。\n' +
                     'B 站只有部分投稿带无损音轨，标题里写「Hi-Res」多半是 UP 主的宣传词。');
             }
         } catch (err) {
             console.error('[bili-dl] 刷新清晰度列表失败：', err);
-            alert('刷新清晰度列表失败: ' + err.message);
+            notify('刷新清晰度列表失败: ' + err.message);
         } finally {
             if (btn) { btn.textContent = '↻ 读取可选档位'; btn.disabled = false; }
         }
@@ -1015,6 +1064,7 @@
     }
 
     // ===================== 下载动作 =====================
+    // 提示一律走 notify()：沙箱化的页面里 alert() 会被拦，直接报错 / all messages go through notify(); alert() throws inside a sandboxed page
     // ===================== Download actions =====================
     async function downloadAudio(btn) {
         btn.textContent = '解析中…'; btn.disabled = true;
@@ -1030,11 +1080,11 @@
             await downloadFile(audio.urls, filename, (name, pct) => { btn.textContent = `音频 ${pct}%`; });
             const aq = qualityLabel(AUDIO_QUALITY_NAMES, audio.quality);
             console.log(`✅ 已下载 P${info.p}/${info.total}: ${filename}`);
-            alert(`✅ 音频下载完成！\n当前分P: P${info.p}/${info.total}\n音质: ${aq} ${codecFamily(audio.codecs)} ${kbps(audio.bandwidth)}`);
+            notify(`✅ 音频下载完成！\n当前分P: P${info.p}/${info.total}\n音质: ${aq} ${codecFamily(audio.codecs)} ${kbps(audio.bandwidth)}`);
         } catch (err) {
             if (isCancelled(err)) { console.log('[bili-dl] 音频下载已取消'); return; }
             console.error(err);
-            alert('音频下载失败: ' + err.message);
+            notify('音频下载失败: ' + err.message);
         } finally {
             btn.textContent = '🎵 音频'; btn.disabled = false;
             endDownload();
@@ -1055,11 +1105,11 @@
             await downloadFile(video.urls, filename, (name, pct) => { btn.textContent = `视频 ${pct}%`; });
             const vq = qualityLabel(VIDEO_QUALITY_NAMES, video.quality);
             console.log(`✅ 已下载 P${info.p}/${info.total}: ${filename}`);
-            alert(`✅ 视频下载完成！\n当前分P: P${info.p}/${info.total}\n画质: ${vq} ${video.width}x${video.height} ${codecFamily(video.codecs)} ${kbps(video.bandwidth)}`);
+            notify(`✅ 视频下载完成！\n当前分P: P${info.p}/${info.total}\n画质: ${vq} ${video.width}x${video.height} ${codecFamily(video.codecs)} ${kbps(video.bandwidth)}`);
         } catch (err) {
             if (isCancelled(err)) { console.log('[bili-dl] 视频下载已取消'); return; }
             console.error(err);
-            alert('视频下载失败: ' + err.message);
+            notify('视频下载失败: ' + err.message);
         } finally {
             btn.textContent = '🎬 仅视频'; btn.disabled = false;
             endDownload();
@@ -1090,7 +1140,7 @@
                         });
                         const mb = res.size ? (res.size / 1048576).toFixed(1) + ' MB' : '';
                         console.log(`✅ FFmpeg 已合并 P${info.p}/${info.total}: ${res.output}`);
-                        alert(`✅ 已自动合并完成（原生 FFmpeg）！\n当前分P: P${info.p}/${info.total}\n大小: ${mb}\n规格: ${qualitySummary(video, audio)}\n\n文件：${res.output}`);
+                        notify(`✅ 已自动合并完成（原生 FFmpeg）！\n当前分P: P${info.p}/${info.total}\n大小: ${mb}\n规格: ${qualitySummary(video, audio)}\n\n文件：${res.output}`);
                         return;
                     } catch (e) {
                         if (isCancelled(e)) throw e;
@@ -1121,7 +1171,7 @@
                         const filename = outputName(info, 'mp4');
                         saveBlob(merged, filename);
                         console.log(`✅ 浏览器内重封装完成 P${info.p}/${info.total}: ${filename}（${merged.size} 字节）`);
-                        alert(`✅ 已自动合并完成（浏览器内重封装，无转码）！\n当前分P: P${info.p}/${info.total}\n大小: ${(merged.size / 1048576).toFixed(1)} MB\n规格: ${qualitySummary(video, audio)}\n\n文件：${filename}`);
+                        notify(`✅ 已自动合并完成（浏览器内重封装，无转码）！\n当前分P: P${info.p}/${info.total}\n大小: ${(merged.size / 1048576).toFixed(1)} MB\n规格: ${qualitySummary(video, audio)}\n\n文件：${filename}`);
                         return;
                     } catch (e) {
                         if (isCancelled(e)) throw e;
@@ -1145,11 +1195,11 @@
 
             const outputFile = outputName(info, 'mp4', ' 完整版');
             console.log(`✅ 已下载 P${info.p}/${info.total}`);
-            alert(`✅ 下载完成！\n当前分P: P${info.p}/${info.total}\n\n请用 FFmpeg 合并：\nffmpeg -i "${videoFile}" ${audio ? `-i "${audioFile}" -c:v copy -c:a copy` : '-c:v copy'} "${outputFile}"\n\n──────\n自动合并这次没成功（原因见控制台 [bili-dl] 开头的中文日志）。\n装了 native-host 的话会自动改用原生 FFmpeg 合并。`);
+            notify(`✅ 下载完成！\n当前分P: P${info.p}/${info.total}\n\n请用 FFmpeg 合并：\nffmpeg -i "${videoFile}" ${audio ? `-i "${audioFile}" -c:v copy -c:a copy` : '-c:v copy'} "${outputFile}"\n\n──────\n自动合并这次没成功（原因见控制台 [bili-dl] 开头的中文日志）。\n装了 native-host 的话会自动改用原生 FFmpeg 合并。`);
         } catch (err) {
             if (isCancelled(err)) { console.log('[bili-dl] 合并下载已取消'); return; }
             console.error(err);
-            alert('下载失败: ' + err.message);
+            notify('下载失败: ' + err.message);
         } finally {
             btn.textContent = '🎬🎵 视频+音频'; btn.disabled = false;
             endDownload();
