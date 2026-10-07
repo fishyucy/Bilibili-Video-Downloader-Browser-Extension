@@ -127,6 +127,18 @@
         };
     }
 
+    // 统一拼输出文件名：单P视频不带 P 号（多P才带），也不再拼 audio / video / merged 之类后缀。
+    // 只有通道 C 的兜底合并结果需要多一个「完整版」标记 —— 否则会和它的两个输入文件同名，
+    // ffmpeg 会直接报「输出文件与输入文件相同」。
+    // Single source of truth for output names: only multi-part videos carry a P marker, and no
+    // audio / video / merged type suffix is appended any more. The one exception is the channel-C
+    // fallback merge output, which needs a distinct name or ffmpeg refuses to run
+    // ("output file same as input").
+    function outputName(info, ext, suffix) {
+        const partTag = info.total > 1 ? `_p${info.p}` : '';
+        return `${info.title}${partTag}${suffix || ''}.${ext}`;
+    }
+
     // ===================== 画质 / 音质 =====================
     // ===================== Quality / audio tiers =====================
     // fnval 位标志：DASH(16) + HDR(64) + 4K(128) + 杜比音频(256) + 杜比视界(512) + 8K(1024) + AV1(2048)
@@ -1014,7 +1026,7 @@
             if (!audio) throw new Error('该视频没有独立的音频流');
 
             btn.textContent = '下载音频…';
-            const filename = `${info.title}_p${info.p}_audio.m4a`;
+            const filename = outputName(info, 'm4a');
             await downloadFile(audio.urls, filename, (name, pct) => { btn.textContent = `音频 ${pct}%`; });
             const aq = qualityLabel(AUDIO_QUALITY_NAMES, audio.quality);
             console.log(`✅ 已下载 P${info.p}/${info.total}: ${filename}`);
@@ -1039,7 +1051,7 @@
             if (!video) throw new Error('该视频没有视频流');
 
             btn.textContent = '下载视频…';
-            const filename = `${info.title}_p${info.p}_video_only.mp4`;
+            const filename = outputName(info, 'mp4');
             await downloadFile(video.urls, filename, (name, pct) => { btn.textContent = `视频 ${pct}%`; });
             const vq = qualityLabel(VIDEO_QUALITY_NAMES, video.quality);
             console.log(`✅ 已下载 P${info.p}/${info.total}: ${filename}`);
@@ -1071,7 +1083,7 @@
                 if (probe && probe.ok) {
                     try {
                         btn.textContent = 'FFmpeg 合并中…';
-                        const mergedName = `${info.title}_p${info.p}_merged.mp4`;
+                        const mergedName = outputName(info, 'mp4');
                         const res = await nativeMergeFile(video.url, audio.url, mergedName, (m) => {
                             if (m.phase === 'merge') btn.textContent = 'FFmpeg 封装中…';
                             else btn.textContent = `${m.label || '下载'} ${m.percent}%`;
@@ -1093,11 +1105,11 @@
                 if (window.BiliMux) {
                     try {
                         btn.textContent = '下载视频…';
-                        const vBlob = await fetchStreamBlob(video.urls, `${info.title}_p${info.p}_video`, (n, pct) => {
+                        const vBlob = await fetchStreamBlob(video.urls, outputName(info, 'mp4'), (n, pct) => {
                             btn.textContent = `视频 ${pct}%`;
                         });
                         btn.textContent = '下载音频…';
-                        const aBlob = await fetchStreamBlob(audio.urls, `${info.title}_p${info.p}_audio`, (n, pct) => {
+                        const aBlob = await fetchStreamBlob(audio.urls, outputName(info, 'm4a'), (n, pct) => {
                             btn.textContent = `音频 ${pct}%`;
                         });
 
@@ -1106,7 +1118,7 @@
                             btn.textContent = `${phase} ${pct}%`;
                         });
 
-                        const filename = `${info.title}_p${info.p}_merged.mp4`;
+                        const filename = outputName(info, 'mp4');
                         saveBlob(merged, filename);
                         console.log(`✅ 浏览器内重封装完成 P${info.p}/${info.total}: ${filename}（${merged.size} 字节）`);
                         alert(`✅ 已自动合并完成（浏览器内重封装，无转码）！\n当前分P: P${info.p}/${info.total}\n大小: ${(merged.size / 1048576).toFixed(1)} MB\n规格: ${qualitySummary(video, audio)}\n\n文件：${filename}`);
@@ -1121,17 +1133,17 @@
             // ---------- 通道 C：兜底 —— 分开下载，人工合并 ----------
             // ---------- Channel C: last resort -- download separately, merge by hand ----------
             btn.textContent = '下载视频…';
-            const videoFile = `${info.title}_p${info.p}_video.mp4`;
+            const videoFile = outputName(info, 'mp4');
             await downloadFile(video.urls, videoFile, (name, pct) => { btn.textContent = `视频 ${pct}%`; });
 
             let audioFile = '';
             if (audio) {
                 btn.textContent = '下载音频…';
-                audioFile = `${info.title}_p${info.p}_audio.m4a`;
+                audioFile = outputName(info, 'm4a');
                 await downloadFile(audio.urls, audioFile, (name, pct) => { btn.textContent = `音频 ${pct}%`; });
             }
 
-            const outputFile = `${info.title}_p${info.p}_merged.mp4`;
+            const outputFile = outputName(info, 'mp4', ' 完整版');
             console.log(`✅ 已下载 P${info.p}/${info.total}`);
             alert(`✅ 下载完成！\n当前分P: P${info.p}/${info.total}\n\n请用 FFmpeg 合并：\nffmpeg -i "${videoFile}" ${audio ? `-i "${audioFile}" -c:v copy -c:a copy` : '-c:v copy'} "${outputFile}"\n\n──────\n自动合并这次没成功（原因见控制台 [bili-dl] 开头的中文日志）。\n装了 native-host 的话会自动改用原生 FFmpeg 合并。`);
         } catch (err) {

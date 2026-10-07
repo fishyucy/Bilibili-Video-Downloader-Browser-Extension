@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器 · INSTRUCTION
-  版本 1.16.0   Chrome / Edge 扩展（Manifest V3）
+  版本 1.17.0   Chrome / Edge 扩展（Manifest V3）
 ================================================================
 
 
@@ -105,15 +105,26 @@
 【六、文件命名与保存位置】
 
   文件名规则：
-      视频标题_分P名_p分P号_类型.后缀
+      视频标题[_分P名][_p分P号].后缀
 
-  三种类型：
-      _audio.m4a          音频
-      _video_only.mp4     仅视频
-      _merged.mp4         视频+音频合并结果
+  · 分P名和 P 号只在多P视频里才拼进去；单P视频直接就是「主标题.后缀」
+  · 不再拼接 audio / video / merged 之类的类型后缀
 
   例子：
-      某视频_第3话_p3_merged.mp4
+      单P视频  某视频.mp4                 某视频.m4a
+      多P视频  某视频_第3话_p3.mp4         某视频_第3话_p3.m4a
+
+  三种下载对应的后缀：
+      音频            → .m4a
+      仅视频          → .mp4
+      视频+音频       → .mp4
+
+  说明：同一支视频如果先下了「仅视频」再下「视频+音频」，两个文件名会一样，
+  浏览器会自动存成「某视频 (1).mp4」，不会互相覆盖。
+
+  唯一的例外是第 7 节的「通道 C 兜底」：那条路要分别下视频和音频让你手动合并，
+  合并结果会命名为「某视频_第3话_p3 完整版.mp4」—— 加「完整版」是为了不和
+  它的两个输入文件同名（同名的话 ffmpeg 会直接报错）。
 
   保存位置：
       · 浏览器内通道   → 浏览器的默认下载目录（可在浏览器设置里改）
@@ -235,7 +246,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader · INSTRUCTION
-  Version 1.16.0   Chrome / Edge extension (Manifest V3)
+  Version 1.17.0   Chrome / Edge extension (Manifest V3)
 ================================================================
 
 
@@ -340,15 +351,30 @@
 【6. Filenames and save location】
 
   Filename pattern:
-      video title_part name_p<part number>_<kind>.<ext>
+      video title[_part name][_p<part number>].<ext>
 
-  Three kinds:
-      _audio.m4a          audio
-      _video_only.mp4     video only
-      _merged.mp4         merged video + audio
+  · The part name and the P number are only included for multi-part videos;
+    a single-part video is simply "main title.<ext>"
+  · No audio / video / merged type suffix is appended any more
 
-  Example:
-      Some Show_Episode 3_p3_merged.mp4
+  Examples:
+      single part   Some Show.mp4              Some Show.m4a
+      multi part    Some Show_Episode 3_p3.mp4 Some Show_Episode 3_p3.m4a
+
+  Extension by download kind:
+      audio            -> .m4a
+      video only       -> .mp4
+      video + audio    -> .mp4
+
+  Note: if you download "video only" and then "video + audio" for the same video, both
+  filenames match and the browser saves the second as "Some Show (1).mp4" -- nothing is
+  overwritten.
+
+  The one exception is the channel-C fallback in section 7: that path downloads video and
+  audio separately for you to merge by hand, and its merge output is named
+  "Some Show_Episode 3_p3 完整版.mp4" (literally "full version"). The marker exists so the
+  output does not collide with its own two input files -- ffmpeg refuses to run when the
+  output name equals an input name.
 
   Save location:
       · in-browser channel  -> your browser's default download folder (configurable in browser settings)

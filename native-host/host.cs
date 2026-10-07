@@ -471,7 +471,9 @@ class BiliDlHost
 
     static string SanitizeName(string name)
     {
-        if (string.IsNullOrEmpty(name)) return "bilibili_merged.mp4";
+        // 兜底名不带 merged 之类的类型后缀（正常都走扩展传来的文件名）
+        // Fallback name carries no type suffix such as "merged" (normally the name comes from the extension)
+        if (string.IsNullOrEmpty(name)) return "bilibili.mp4";
         StringBuilder sb = new StringBuilder();
         foreach (char c in name)
         {
@@ -480,6 +482,6 @@ class BiliDlHost
             sb.Append(c);
         }
         string s = sb.ToString().Trim().Trim('.');
-        return s.Length == 0 ? "bilibili_merged.mp4" : s;
+        return s.Length == 0 ? "bilibili.mp4" : s;
     }
 }
