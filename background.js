@@ -85,6 +85,72 @@ chrome.runtime.onInstalled.addListener(installHeaderRules);
 chrome.runtime.onStartup.addListener(installHeaderRules);
 
 // ---------------------------------------------------------------------------
+// 文件名纠正
+// Filename correction
+// chrome.downloads.download 的 filename 只是「建议名」，而且一旦本扩展注册了
+// onDeterminingFilename，这个建议名会被直接忽略，改成由监听器说了算。
+// The filename passed to chrome.downloads.download is only a suggestion, and as soon as this
+// extension registers onDeterminingFilename that suggestion is ignored entirely -- the listener
+// decides instead.
+// 实测：URL 为 data: 时 Chrome 完全忽略 filename，落盘成默认名（中文环境是「下载」），
+// 后缀也没了。所以这里记下「这次下载想要叫什么」，等 Chrome 定名时再改一次。
+// Measured: with a data: URL Chrome ignores the filename outright and saves under the
+// localized default name (「下载」in Chinese) with no extension. So record the intended name
+// and rewrite it when Chrome asks.
+// ---------------------------------------------------------------------------
+const pendingNames = new Map();   // url 指纹 -> { filename, at } / url fingerprint -> { filename, at }
+let lastPending = null;           // 最近一次请求的名字，供 data: 下载兜底 / most recent request, a fallback for data: downloads
+
+function nameKey(url) {
+    if (!url) return '';
+    // data: URL 可能十几 MB，用「长度 + 头部指纹」当键，不把整串存下来
+    // A data: URL can be tens of MB, so key it by length plus a head fingerprint rather than storing it whole
+    if (url.lastIndexOf('data:', 0) === 0) return 'data:' + url.length + '|' + url.slice(0, 96);
+    return url;
+}
+
+function rememberName(url, filename) {
+    if (!url || !filename) return;
+    const rec = { filename: filename, at: Date.now() };
+    pendingNames.set(nameKey(url), rec);
+    lastPending = rec;
+    const now = Date.now();
+    for (const [k, v] of pendingNames) {
+        if (now - v.at > 120000) pendingNames.delete(k);   // 两分钟没等到就丢弃 / drop anything that never came back within two minutes
+    }
+}
+
+if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
+    chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+        // 1) URL 精确匹配（扩展直下走的 http(s) 地址走这条）
+        // 1) Exact URL match (this is the path for extension downloads over http(s))
+        for (const u of [item.finalUrl, item.url]) {
+            const k = nameKey(u);
+            const rec = k ? pendingNames.get(k) : null;
+            if (rec) {
+                pendingNames.delete(k);
+                lastPending = null;
+                console.log('[bili-dl] 纠正文件名 -> ' + rec.filename);
+                suggest({ filename: rec.filename, conflictAction: 'uniquify' });
+                return;
+            }
+        }
+        // 2) data: 下载一定出自本扩展，内容无从比对，取最近一次请求的名字兜底
+        // 2) A data: download can only come from this extension; its payload cannot be compared,
+        //    so fall back to the most recent requested name
+        const u = String(item.finalUrl || item.url || '');
+        if (u.lastIndexOf('data:', 0) === 0 && lastPending && Date.now() - lastPending.at < 120000) {
+            const rec = lastPending;
+            lastPending = null;
+            console.log('[bili-dl] 纠正文件名（data: 兜底）-> ' + rec.filename);
+            suggest({ filename: rec.filename, conflictAction: 'uniquify' });
+            return;
+        }
+        suggest();   // 不是本扩展发起的下载，不做任何改动 / not one of ours: leave it alone
+    });
+}
+
+// ---------------------------------------------------------------------------
 // 落盘：接收内容脚本传来的 blob（base64 的 data: URL），用扩展的下载接口保存。
 // Save to disk: take the blob sent by the content script (as a base64 data: URL) and store
 // it through the extension's own download API.
@@ -103,6 +169,7 @@ function saveBlobToDisk(dataUrl, filename) {
                 resolve({ ok: false, error: '扩展缺少 downloads 权限' });
                 return;
             }
+            rememberName(dataUrl, filename);   // 登记意图文件名，供 onDeterminingFilename 纠正 / record the intended name for onDeterminingFilename
             chrome.downloads.download({
                 url: dataUrl,
                 filename: filename,
@@ -122,6 +189,88 @@ function saveBlobToDisk(dataUrl, filename) {
             });
         } catch (e) {
             resolve({ ok: false, error: String(e && e.message ? e.message : e) });
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// 扩展直下：把原始 CDN 地址交给 chrome.downloads 直接下载。
+// Download straight from the original CDN URL through chrome.downloads.
+// 好处：http(s) 地址的 filename 一定生效、不受页面沙箱约束、页面不用缓存整个文件。
+// Why: for an http(s) URL the filename is honoured, the page sandbox does not apply, and the
+// page never has to buffer the whole file.
+// 走 declarativeNetRequest 的规则补 Referer / Origin，B 站 CDN 才会放行。
+// The declarativeNetRequest rules inject Referer / Origin, without which the Bilibili CDN refuses.
+// ---------------------------------------------------------------------------
+function tryOneDownload(url, filename, onProgress, onStart) {
+    return new Promise((resolve) => {
+        let timer = null;
+        let listener = null;
+
+        const cleanup = () => {
+            if (timer) { clearTimeout(timer); timer = null; }
+            if (listener) {
+                try { chrome.downloads.onChanged.removeListener(listener); } catch (e) { /* ignore */ }
+                listener = null;
+            }
+        };
+
+        try {
+            rememberName(url, filename);
+            chrome.downloads.download({
+                url: url,
+                filename: filename,
+                saveAs: false,
+                conflictAction: 'uniquify'   // 同名文件不覆盖，自动加 (1) / do not overwrite; append (1) instead
+            }, (downloadId) => {
+                const err = chrome.runtime.lastError;
+                if (err || typeof downloadId !== 'number' || downloadId < 0) {
+                    console.warn('[bili-dl] 扩展直下未能启动：' + (err ? err.message : '未返回有效 ID'));
+                    cleanup();
+                    resolve({ ok: false });
+                    return;
+                }
+                if (onStart) onStart(downloadId);
+
+                listener = (delta) => {
+                    if (!delta || delta.id !== downloadId) return;
+
+                    if (delta.bytesReceived && delta.totalBytes && delta.totalBytes.current > 0) {
+                        const pct = Math.min(99, Math.round(delta.bytesReceived.current / delta.totalBytes.current * 100));
+                        if (onProgress) onProgress(pct);
+                    }
+                    if (delta.error) {
+                        const reason = String(delta.error.current || '');
+                        console.warn('[bili-dl] 扩展直下出错：' + reason);
+                        cleanup();
+                        resolve({ ok: false, cancelled: /CANCEL/i.test(reason) });
+                        return;
+                    }
+                    if (delta.state) {
+                        const st = delta.state.current;
+                        if (st === 'complete') {
+                            cleanup();
+                            if (onProgress) onProgress(100);
+                            resolve({ ok: true });
+                        } else if (st === 'interrupted') {
+                            cleanup();
+                            resolve({ ok: false });
+                        }
+                    }
+                };
+                chrome.downloads.onChanged.addListener(listener);
+
+                // 大文件给足时间，别把慢的当失败的 / give big files room; do not mistake slow for broken
+                timer = setTimeout(() => {
+                    console.warn('[bili-dl] 扩展直下超时');
+                    cleanup();
+                    resolve({ ok: false });
+                }, 10 * 60 * 1000);
+            });
+        } catch (e) {
+            cleanup();
+            console.warn('[bili-dl] 扩展直下抛异常：' + (e && e.message ? e.message : e));
+            resolve({ ok: false });
         }
     });
 }
@@ -371,6 +520,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
     let dl = null;             // 本条连接的下载状态（暂停 / 取消） / download state for this connection (pause / cancel)
     let nativePort = null;     // 本条连接的原生宿主 port / native host port for this connection
+    let activeDownloadId = null;   // 扩展直下时的下载 id，供暂停 / 取消 / download id of an extension download, for pause / cancel
 
     port.onMessage.addListener(async (msg) => {
         if (!msg) return;
@@ -379,10 +529,13 @@ chrome.runtime.onConnect.addListener((port) => {
         // ---- Control messages: pause / resume / cancel ----
         if (msg.type === 'pause') {
             if (dl) { dl.paused = true; console.log('[bili-dl] 后台下载已暂停'); }
+            // 扩展直下由 chrome.downloads 自己的暂停实现 / an extension download pauses through chrome.downloads
+            if (activeDownloadId != null) { try { chrome.downloads.pause(activeDownloadId); } catch (e) { /* ignore */ } }
             return;
         }
         if (msg.type === 'resume') {
             if (dl) { dl.paused = false; releaseDlWaiters(dl, false); console.log('[bili-dl] 后台下载已继续'); }
+            if (activeDownloadId != null) { try { chrome.downloads.resume(activeDownloadId); } catch (e) { /* ignore */ } }
             return;
         }
         if (msg.type === 'cancel') {
@@ -393,12 +546,46 @@ chrome.runtime.onConnect.addListener((port) => {
                 try { dl.controller.abort(); } catch (e) { /* ignore */ }
                 console.log('[bili-dl] 后台下载已取消');
             }
+            if (activeDownloadId != null) {
+                try { chrome.downloads.cancel(activeDownloadId); } catch (e) { /* ignore */ }
+                console.log('[bili-dl] 已取消扩展直下');
+            }
             return;
         }
         if (msg.type === 'nativeCancel') {
             if (nativePort) {
                 try { nativePort.postMessage({ action: 'cancel' }); } catch (e) { /* 宿主可能已退出 */ }
                 console.log('[bili-dl] 已向原生宿主发送取消');
+            }
+            return;
+        }
+
+        if (msg.type === 'downloadUrl') {
+            const urls = (Array.isArray(msg.urls) ? msg.urls : [msg.url]).filter(Boolean);
+            if (!urls.length) { safePost(port, { type: 'dlFailed' }); return; }
+
+            startKeepAlive();
+            try {
+                let ok = false;
+                let cancelled = false;
+                for (let i = 0; i < urls.length; i++) {
+                    if (i > 0) console.warn('[bili-dl] 扩展直下改用备用地址 ' + i + '/' + (urls.length - 1));
+                    const r = await tryOneDownload(urls[i], msg.filename, (pct) => {
+                        safePost(port, { type: 'dlProgress', percent: pct });
+                    }, (id) => { activeDownloadId = id; });
+                    activeDownloadId = null;
+                    if (r.ok) { ok = true; break; }
+                    if (r.cancelled) { cancelled = true; break; }
+                }
+                if (cancelled) safePost(port, { type: 'dlCancelled' });
+                else if (ok) console.log('[bili-dl] 扩展直下完成：' + msg.filename);
+                else safePost(port, { type: 'dlFailed' });
+            } catch (err) {
+                console.error('[bili-dl] 扩展直下异常:', err);
+                safePost(port, { type: 'dlFailed' });
+            } finally {
+                activeDownloadId = null;
+                stopKeepAlive();
             }
             return;
         }

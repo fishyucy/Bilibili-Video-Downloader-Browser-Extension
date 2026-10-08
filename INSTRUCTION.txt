@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器 · INSTRUCTION
-  版本 1.17.2   Chrome / Edge 扩展（Manifest V3）
+  版本 1.17.3   Chrome / Edge 扩展（Manifest V3）
 ================================================================
 
 
@@ -202,15 +202,28 @@
 
   Q：控制台报 "Download is disallowed. The frame initiating or
      instantiating the download is sandboxed, but the flag
-     'allow-downloads' is not set"，文件没下下来？
-    A：同一个沙箱 iframe 还会连「保存文件」这个动作一起拦掉 ——
-       页面里创建的 <a download> 点击会被浏览器直接拒绝，
-       日志却仍然显示「已下载」。v1.17.2 起，保存改走扩展自己的
-       下载接口（不受页面沙箱约束），被拦时会自动切换，不再丢文件。
-       这条红字若仍出现，只说明页面内的 <a download> 兜底路径走了一次，
-       文件实际由扩展接口落盘 —— 以「下载」栏里有没有文件为准。
-       另外请确认扩展已重新加载：控制台第一行应打印
-       [bili-dl] 内容脚本已加载 v1.17.2。
+     'allow-downloads' is not set"？
+    A：同一个沙箱 iframe 会把「保存文件」这个动作一起拦掉 ——
+       页面里创建的 <a download> 点击会被浏览器直接拒绝。
+       v1.17.2 起，保存改走扩展自己的下载接口，被拦不再丢文件；
+       v1.17.3 起更进一步：单文件下载直接把原始地址交给扩展，
+       由扩展自己下载 —— 既绕开页面沙箱，文件名也完全由我们指定。
+       这条红字若仍出现，说明页面内的兜底路径被走过一次，
+       文件实际已由扩展落盘 —— 以「下载」里有没有文件为准。
+
+
+  Q：下载下来的文件没有后缀，或者名字变成了「下载」？
+    A：这是 v1.17.2 的缺陷，v1.17.3 已修。
+       起因：当下载地址是 data: 时，Chrome 的下载接口会完全忽略
+       程序给的文件名，落盘时改用系统默认名（中文环境就是「下载」），
+       后缀也一起丢了 —— 文件内容其实是完整的。
+       v1.17.3 的两处修复：
+         1) 单文件下载改成把原始视频 / 音频地址交给扩展直接下载，
+            http(s) 地址的文件名一定生效；
+         2) 另外注册了文件名纠正监听器，合并结果等仍走 data: 的场合
+            也会被改回正确的名字与后缀。
+       若仍看到「下载」这类名字，请确认扩展已重新加载：
+       控制台第一行应打印 [bili-dl] 内容脚本已加载 v1.17.3。
 
 
 【九、权限说明】
@@ -231,7 +244,7 @@
     · downloads
         保存文件。B 站有时把播放器放进沙箱 iframe，页面内的
         <a download> 会被浏览器拒绝；改用扩展的下载接口后，
-        落盘不再受页面沙箱限制。
+        落盘不再受页面沙箱限制，文件名也由扩展准确指定。
 
     · host_permissions: *://*/*
         用于向 B 站 CDN 取流（CDN 域名是动态的）。
@@ -270,7 +283,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader · INSTRUCTION
-  Version 1.17.2   Chrome / Edge extension (Manifest V3)
+  Version 1.17.3   Chrome / Edge extension (Manifest V3)
 ================================================================
 
 
@@ -477,16 +490,31 @@
 
   Q: The console says "Download is disallowed. The frame initiating or
      instantiating the download is sandboxed, but the flag
-     'allow-downloads' is not set", and no file shows up?
+     'allow-downloads' is not set"?
     A: The same sandboxed iframe also blocks the save step itself -- an in-page
-       <a download> click is refused outright by the browser while the log still
-       reads "downloaded". Since v1.17.2 the save goes through the extension's own
-       download API, which the page sandbox cannot reach, and falls back
-       automatically, so files are no longer lost. If the red line still appears,
-       it only means the in-page fallback ran once; the file was actually written
-       by the extension API -- trust your Downloads list.
-       Also make sure the extension was reloaded: the first console line should read
-       [bili-dl] content script loaded v1.17.2.
+       <a download> click is refused outright by the browser. Since v1.17.2 the save
+       goes through the extension's own download API, so a blocked page no longer
+       loses the file; v1.17.3 goes further and hands the original URLs to the
+       extension for single-file downloads, which dodges the page sandbox entirely
+       and keeps the filename fully under our control. If the red line still appears,
+       the in-page fallback ran once; the file was written by the extension API --
+       trust your Downloads list.
+
+
+  Q: The downloaded file has no extension, or is named "download"?
+    A: A v1.17.2 defect, fixed in v1.17.3.
+       Cause: when the download URL is a data: URL, Chrome's download API ignores
+       the programmatic filename completely and falls back to the system default
+       name (localized, hence "download"), dropping the extension with it -- the
+       file contents are fine.
+       Two fixes in v1.17.3:
+         1) single-file downloads now hand the original video / audio URL to the
+            extension, and for an http(s) URL the filename is always honoured;
+         2) a filename-correcting listener was added, so cases that still go
+            through data: (e.g. merged results) get the right name and extension back.
+       If you still see a name like "download", make sure the extension was
+       reloaded: the first console line should read
+       [bili-dl] content script loaded v1.17.3.
 
 
 【9. Permissions】
@@ -507,7 +535,8 @@
     · downloads
           Saving files. Bilibili sometimes puts the player in a sandboxed iframe where
           an in-page <a download> is refused by the browser; going through the
-          extension download API lifts the save out of the page sandbox.
+          extension download API lifts the save out of the page sandbox and pins down
+          the filename exactly.
 
     · host_permissions: *://*/*
           Used to fetch streams from the Bilibili CDNs (whose hostnames are dynamic).

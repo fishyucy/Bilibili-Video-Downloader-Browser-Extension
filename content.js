@@ -596,12 +596,81 @@
         return viaWorker;
     }
 
-    // 拿到流数据并落盘
-    // Fetch the stream data and write it to disk
+    // 拿到流数据并落盘：优先让扩展直接下载原始地址，失败才退回页面内下载
+    // Fetch the stream data and write it to disk: prefer having the extension download the
+    // original URL, and fall back to the in-page route only when that fails
     async function downloadFile(urlOrUrls, filename, onProgress) {
+        const urls = (Array.isArray(urlOrUrls) ? urlOrUrls : [urlOrUrls]).filter(Boolean);
+
+        // 通道 0：扩展直下。http(s) 地址的 filename 一定生效，也不占页面内存。
+        // Channel 0: the extension downloads it. For an http(s) URL the filename is honoured,
+        // and nothing is buffered inside the page.
+        try {
+            const viaExt = await downloadViaExtension(urls, filename, onProgress);
+            if (viaExt) return filename;
+            console.log('[bili-dl] 扩展直下未成功，改用页面内下载');
+        } catch (err) {
+            if (isCancelled(err)) throw err;
+            console.warn('[bili-dl] 扩展直下异常，改用页面内下载：' + (err && err.message));
+        }
+
         const blob = await fetchStreamBlob(urlOrUrls, filename, onProgress);
         await saveBlob(blob, filename);
         return filename;
+    }
+
+    // 通道 0 实现：把原始地址交给后台，由扩展自己的下载接口落盘
+    // Channel 0 implementation: hand the original URLs to the background, which saves them
+    // through the extension's own download API
+    // 为什么不继续用 data: URL：Chrome 对 data: 的下载会忽略 filename，落盘变成默认名「下载」，
+    // 后缀也一起丢了。给一个真实的 http(s) 地址，文件名才由我们说了算。
+    // Why not keep using a data: URL: Chrome ignores the filename for data: downloads and saves
+    // the file under the localized default name, losing the extension with it. With a real
+    // http(s) URL the name stays under our control.
+    function downloadViaExtension(urls, filename, onProgress) {
+        return new Promise((resolve, reject) => {
+            if (!urls.length) { resolve(false); return; }
+            if (!chrome.runtime || !chrome.runtime.id) { resolve(false); return; }
+
+            const port = chrome.runtime.connect({ name: 'bili-dl' });
+            dlControl.port = port;      // 挂到控制层：暂停 / 取消会通过它下发 / registered with the control layer; pause/cancel go through it
+            dlControl.native = false;
+
+            let settled = false;
+            const finish = (res) => {
+                if (settled) return;
+                settled = true;
+                try { port.disconnect(); } catch (e) { /* ignore */ }
+                // 用户主动取消时不要退回页面内通道，否则会又下一遍
+                // On a deliberate cancel do not fall back, or the file downloads a second time
+                if (dlControl.cancelled) { reject(cancelledError()); return; }
+                resolve(res);
+            };
+
+            port.onMessage.addListener((msg) => {
+                if (!msg) return;
+                if (msg.type === 'dlProgress') {
+                    if (onProgress) onProgress(filename, msg.percent);
+                } else if (msg.type === 'dlDone') {
+                    console.log('[bili-dl] 扩展直下完成：' + filename);
+                    finish(true);
+                } else if (msg.type === 'dlCancelled') {
+                    console.log('[bili-dl] 扩展直下已取消');
+                    finish(false);
+                } else if (msg.type === 'dlFailed') {
+                    console.warn('[bili-dl] 扩展直下失败');
+                    finish(false);
+                }
+            });
+
+            port.onDisconnect.addListener(() => {
+                const err = chrome.runtime && chrome.runtime.lastError;
+                if (err) console.warn('[bili-dl] 扩展直下通道中断：' + err.message);
+                finish(false);
+            });
+
+            port.postMessage({ type: 'downloadUrl', urls, filename });
+        });
     }
 
     // 通道 1 实现：页面内流式读取
@@ -727,6 +796,32 @@
         }, 60000);
     }
 
+    // 按扩展名给 Blob 补上正确的 MIME 类型。
+    // Give the Blob a correct MIME type based on its extension.
+    // 为什么需要：data: URL 的 MIME 决定 Chrome 能否推出后缀，而 B 站 CDN 常回
+    // application/octet-stream，落盘时就没有后缀。
+    // Why: the MIME carried by a data: URL is what lets Chrome infer an extension, and the
+    // Bilibili CDN often answers with application/octet-stream, landing the file without one.
+    const MIME_BY_EXT = {
+        m4a: 'audio/mp4',
+        mp4: 'video/mp4',
+        mp3: 'audio/mpeg',
+        aac: 'audio/aac',
+        flac: 'audio/flac',
+        wav: 'audio/wav',
+        webm: 'video/webm'
+    };
+
+    function withMimeType(blob, filename) {
+        const m = /\.([a-z0-9]+)$/i.exec(filename || '');
+        const type = m ? MIME_BY_EXT[m[1].toLowerCase()] : '';
+        if (!type) return blob;
+        if (String(blob.type || '').toLowerCase() === type) return blob;
+        // slice 只换 type，不复制底层数据，开销极小
+        // slice only retypes it; the payload is not copied, so it is nearly free
+        try { return blob.slice(0, blob.size, type); } catch (e) { return blob; }
+    }
+
     // 走扩展的 chrome.downloads 落盘。成功返回 true，扩展不可用或失败返回 false（由调用方兜底）
     // Save through the extension's chrome.downloads. Returns true on success, false when the
     // extension is unavailable or the call failed (the caller then falls back).
@@ -778,7 +873,9 @@
                 }
             };
             try {
-                reader.readAsDataURL(blob);
+                // 带上正确的 MIME，data: URL 才推得出后缀
+                // Carry the right MIME so the data: URL can imply an extension
+                reader.readAsDataURL(withMimeType(blob, filename));
             } catch (e) {
                 done(false);
             }
