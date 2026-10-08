@@ -85,6 +85,68 @@ chrome.runtime.onInstalled.addListener(installHeaderRules);
 chrome.runtime.onStartup.addListener(installHeaderRules);
 
 // ---------------------------------------------------------------------------
+// 落盘：接收内容脚本传来的 blob（base64 的 data: URL），用扩展的下载接口保存。
+// Save to disk: take the blob sent by the content script (as a base64 data: URL) and store
+// it through the extension's own download API.
+// 为什么需要这条路：B 站有时把播放器放进 sandbox iframe，页面内的 <a download> 会被浏览器
+// 拒绝（"Download is disallowed. The frame initiating ... is sandboxed, but the flag
+// 'allow-downloads' is not set"），文件根本落不了盘。扩展发起的下载不受页面沙箱约束。
+// Why this path is needed: Bilibili sometimes puts the player in a sandboxed iframe, where the
+// browser refuses an in-page <a download> ("Download is disallowed. The frame initiating ...
+// is sandboxed, but the flag 'allow-downloads' is not set") and the file never lands on disk.
+// A download started by the extension is not subject to the page sandbox.
+// ---------------------------------------------------------------------------
+function saveBlobToDisk(dataUrl, filename) {
+    return new Promise((resolve) => {
+        try {
+            if (!chrome.downloads || !chrome.downloads.download) {
+                resolve({ ok: false, error: '扩展缺少 downloads 权限' });
+                return;
+            }
+            chrome.downloads.download({
+                url: dataUrl,
+                filename: filename,
+                saveAs: false,
+                conflictAction: 'uniquify'   // 同名文件不覆盖，自动加 (1) / do not overwrite; append (1) instead
+            }, (downloadId) => {
+                const err = chrome.runtime.lastError;
+                if (err) {
+                    resolve({ ok: false, error: err.message || String(err) });
+                    return;
+                }
+                if (typeof downloadId !== 'number' || downloadId < 0) {
+                    resolve({ ok: false, error: '下载接口未返回有效 ID' });
+                    return;
+                }
+                resolve({ ok: true, downloadId });
+            });
+        } catch (e) {
+            resolve({ ok: false, error: String(e && e.message ? e.message : e) });
+        }
+    });
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (!msg || msg.type !== 'save-blob') return undefined;   // 不处理的消息交还给其他监听器 / let other listeners have unrelated messages
+
+    (async () => {
+        startKeepAlive();   // 大文件落盘期间保住 Service Worker / hold the Service Worker alive while a big file is written
+        try {
+            const res = await saveBlobToDisk(msg.dataUrl, msg.filename);
+            if (!res.ok) console.warn('[bili-dl] 扩展下载失败：' + res.error);
+            else console.log('[bili-dl] 扩展下载已排队：' + msg.filename + ' (id=' + res.downloadId + ')');
+            sendResponse(res);
+        } catch (e) {
+            sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });
+        } finally {
+            stopKeepAlive();
+        }
+    })();
+
+    return true;   // 异步响应，保持通道打开 / keep the channel open for the async response
+});
+
+// ---------------------------------------------------------------------------
 // 保活：MV3 的 Service Worker 空闲 30 秒会被回收，大文件下载期间需要心跳保住它
 // Keep-alive: MV3 Service Workers are reaped after 30s idle, so a heartbeat holds it alive during large downloads
 // ---------------------------------------------------------------------------

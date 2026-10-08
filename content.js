@@ -600,7 +600,7 @@
     // Fetch the stream data and write it to disk
     async function downloadFile(urlOrUrls, filename, onProgress) {
         const blob = await fetchStreamBlob(urlOrUrls, filename, onProgress);
-        saveBlob(blob, filename);
+        await saveBlob(blob, filename);
         return filename;
     }
 
@@ -693,10 +693,27 @@
         });
     }
 
-    // 保存：延后回收 objectURL，避免大文件还没读完就被 revoke 导致存成 0 字节
-    // Save: revoke the objectURL later, otherwise a large file is revoked before it is read and lands as 0 bytes
-    function saveBlob(blob, filename) {
+    // 保存：优先交给扩展的下载接口，页面沙箱拦不住它；扩展不可用时才退回页面内 <a download>
+    // Save: prefer the extension download API, which a page sandbox cannot block; fall back to an
+    // in-page <a download> only when the extension side is unavailable.
+    // 为什么不能只用 <a download>：B 站有时把播放器塞进 sandbox iframe，此时浏览器会拒绝这次下载
+    // （"Download is disallowed. The frame initiating ... is sandboxed, but the flag
+    // 'allow-downloads' is not set"），文件根本落不了盘，但日志里却显示"已下载"。
+    // Why <a download> alone is not enough: Bilibili sometimes puts the player in a sandboxed
+    // iframe, and the browser then refuses the download ("Download is disallowed. The frame
+    // initiating ... is sandboxed, but the flag 'allow-downloads' is not set"). The file never
+    // lands on disk even though the log says it was downloaded.
+    async function saveBlob(blob, filename) {
         if (!blob || blob.size === 0) throw new Error('下载数据为空，已取消保存');
+
+        // 通道 1：扩展下载接口（data: URL 由扩展自己去取，不受页面沙箱约束）
+        // Channel 1: the extension download API (the extension fetches the data: URL itself,
+        // so the page sandbox does not apply)
+        const viaExt = await saveViaExtension(blob, filename);
+        if (viaExt) return;
+
+        // 通道 2：页面内 <a download> 兜底（非沙箱页面走这里，行为和以前一致）
+        // Channel 2: in-page <a download> as a fallback (non-sandboxed pages end up here, same as before)
         const objectUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = objectUrl;
@@ -708,6 +725,64 @@
             try { document.body.removeChild(link); } catch (e) { /* ignore */ }
             URL.revokeObjectURL(objectUrl);
         }, 60000);
+    }
+
+    // 走扩展的 chrome.downloads 落盘。成功返回 true，扩展不可用或失败返回 false（由调用方兜底）
+    // Save through the extension's chrome.downloads. Returns true on success, false when the
+    // extension is unavailable or the call failed (the caller then falls back).
+    function saveViaExtension(blob, filename) {
+        return new Promise((resolve) => {
+            if (!chrome.runtime || !chrome.runtime.id) { resolve(false); return; }
+
+            // 用 FileReader 转成 data: URL 交给后台：blob: 地址在后台上下文里取不到内容，
+            // 且 sendMessage 不能直接传 Blob，所以这里做一次 base64 编码。
+            // Hand a data: URL to the background: a blob: URL is unreadable from the background
+            // context and sendMessage cannot carry a Blob, so encode it as base64 once.
+            const reader = new FileReader();
+            const TIMEOUT_MS = 120000;   // 大文件编码 + 落盘都要时间 / big files need time to encode and save
+            let settled = false;
+            const done = (ok) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                resolve(ok);
+            };
+            const timer = setTimeout(() => {
+                console.warn('[bili-dl] 扩展下载超时，改用页面内保存');
+                done(false);
+            }, TIMEOUT_MS);
+
+            reader.onerror = () => done(false);
+            reader.onload = () => {
+                let dataUrl;
+                try { dataUrl = String(reader.result || ''); } catch (e) { done(false); return; }
+                if (!dataUrl) { done(false); return; }
+                try {
+                    chrome.runtime.sendMessage({ type: 'save-blob', dataUrl, filename }, (resp) => {
+                        const err = chrome.runtime && chrome.runtime.lastError;
+                        if (err) {
+                            console.warn('[bili-dl] 扩展下载失败：' + err.message);
+                            done(false);
+                            return;
+                        }
+                        if (resp && resp.ok) {
+                            console.log(`[bili-dl] 已通过扩展下载接口保存：${filename}`);
+                            done(true);
+                        } else {
+                            console.warn('[bili-dl] 扩展下载失败：' + ((resp && resp.error) || '未知原因'));
+                            done(false);
+                        }
+                    });
+                } catch (e) {
+                    done(false);
+                }
+            };
+            try {
+                reader.readAsDataURL(blob);
+            } catch (e) {
+                done(false);
+            }
+        });
     }
 
     // ===================== 清晰度 / 音质菜单 =====================
@@ -1177,7 +1252,7 @@
                         });
 
                         const filename = outputName(info, 'mp4');
-                        saveBlob(merged, filename);
+                        await saveBlob(merged, filename);
                         console.log(`✅ 浏览器内重封装完成 P${info.p}/${info.total}: ${filename}（${merged.size} 字节）`);
                         notify(`✅ 已自动合并完成（浏览器内重封装，无转码）！\n当前分P: P${info.p}/${info.total}\n大小: ${(merged.size / 1048576).toFixed(1)} MB\n规格: ${qualitySummary(video, audio)}\n\n文件：${filename}`);
                         return;

@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器 · INSTRUCTION
-  版本 1.17.1   Chrome / Edge 扩展（Manifest V3）
+  版本 1.17.2   Chrome / Edge 扩展（Manifest V3）
 ================================================================
 
 
@@ -200,6 +200,19 @@
        这种情况扩展会自动改成右下角浮层提示（点一下可关掉），文件本身已经下载好了。
 
 
+  Q：控制台报 "Download is disallowed. The frame initiating or
+     instantiating the download is sandboxed, but the flag
+     'allow-downloads' is not set"，文件没下下来？
+    A：同一个沙箱 iframe 还会连「保存文件」这个动作一起拦掉 ——
+       页面里创建的 <a download> 点击会被浏览器直接拒绝，
+       日志却仍然显示「已下载」。v1.17.2 起，保存改走扩展自己的
+       下载接口（不受页面沙箱约束），被拦时会自动切换，不再丢文件。
+       这条红字若仍出现，只说明页面内的 <a download> 兜底路径走了一次，
+       文件实际由扩展接口落盘 —— 以「下载」栏里有没有文件为准。
+       另外请确认扩展已重新加载：控制台第一行应打印
+       [bili-dl] 内容脚本已加载 v1.17.2。
+
+
 【九、权限说明】
 
   这个扩展申请了下面这些权限，用途如下：
@@ -214,6 +227,11 @@
     · nativeMessaging
         调用本机 FFmpeg 做合并。属于可选功能 ——
         没装 native-host 就完全用不到，不影响其它功能。
+
+    · downloads
+        保存文件。B 站有时把播放器放进沙箱 iframe，页面内的
+        <a download> 会被浏览器拒绝；改用扩展的下载接口后，
+        落盘不再受页面沙箱限制。
 
     · host_permissions: *://*/*
         用于向 B 站 CDN 取流（CDN 域名是动态的）。
@@ -252,7 +270,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader · INSTRUCTION
-  Version 1.17.1   Chrome / Edge extension (Manifest V3)
+  Version 1.17.2   Chrome / Edge extension (Manifest V3)
 ================================================================
 
 
@@ -457,6 +475,20 @@
        the file itself is already downloaded.
 
 
+  Q: The console says "Download is disallowed. The frame initiating or
+     instantiating the download is sandboxed, but the flag
+     'allow-downloads' is not set", and no file shows up?
+    A: The same sandboxed iframe also blocks the save step itself -- an in-page
+       <a download> click is refused outright by the browser while the log still
+       reads "downloaded". Since v1.17.2 the save goes through the extension's own
+       download API, which the page sandbox cannot reach, and falls back
+       automatically, so files are no longer lost. If the red line still appears,
+       it only means the in-page fallback ran once; the file was actually written
+       by the extension API -- trust your Downloads list.
+       Also make sure the extension was reloaded: the first console line should read
+       [bili-dl] content script loaded v1.17.2.
+
+
 【9. Permissions】
 
   The extension requests the following permissions, for these reasons:
@@ -471,6 +503,11 @@
     · nativeMessaging
           Calls your local FFmpeg to merge. Optional --
           without native-host installed it is never used, and nothing else is affected.
+
+    · downloads
+          Saving files. Bilibili sometimes puts the player in a sandboxed iframe where
+          an in-page <a download> is refused by the browser; going through the
+          extension download API lifts the save out of the page sandbox.
 
     · host_permissions: *://*/*
           Used to fetch streams from the Bilibili CDNs (whose hostnames are dynamic).
