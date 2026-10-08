@@ -59,6 +59,12 @@ node_modules/
 *.log
 
 
+# ---------- 网盘同步产生的伴随文件 ----------
+# 百度网盘会给同步中的文件生成这个 cfg，它不是项目内容，绝不能提交
+# Baidu Netdisk drops this cfg next to files it is syncing; it is not project content
+*.baiduyun.uploading.cfg
+
+
 # ---------- 编辑器与操作系统 ----------
 .vscode/
 .idea/
