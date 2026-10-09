@@ -89,6 +89,27 @@
   想换版本：删掉 bin\ffmpeg.exe 重跑 find-ffmpeg.exe，或直接替换这个文件。
 
 
+  ── 明明有 ffmpeg，浏览器却说「未找到」？ ──
+
+  先跑一次自检（在本目录下执行）：
+
+      host.exe --selfcheck
+
+  它会在本目录生成 selfcheck.txt，写明：
+    · 宿主认为自己在哪个目录（AppDir）
+    · 它实际去找的 ffmpeg 路径
+    · 那个文件到底存不存在
+    · FindFfmpeg() 最终返回了什么
+
+  另外，宿主日志 %TEMP%\bilidl_host.log 里从 v1.20.3 起会记录：
+    · 每次启动时的 AppDir 与期望的 ffmpeg 路径
+    · 每次 ping / merge / transcode 实际找到的 ffmpeg
+
+  这两份信息基本能一眼定位是「路径算错了」还是「宿主根本没被调用」。
+  注意：host.exe 是 GUI 子系统程序，直接双击它「看不到任何输出」是正常的，
+        所以自检结果写文件而不是打印到屏幕。
+
+
 【怎么确认装好了】
 
   · 刷新 B 站页面，点面板上的「视频+音频」，观察按钮文字：
@@ -268,6 +289,28 @@
   Why bin\ comes first: once you have picked a build it should stay put, rather than
   silently changing when PATH does.
   To switch builds: delete bin\ffmpeg.exe and rerun find-ffmpeg.exe, or replace it.
+
+
+  -- ffmpeg is there, but the browser says "not found"? --
+
+  Run the self check from this folder:
+
+      host.exe --selfcheck
+
+  It writes selfcheck.txt next to the exe, stating:
+    - the directory the host thinks it lives in (AppDir)
+    - the ffmpeg path it actually looks for
+    - whether that file exists
+    - what FindFfmpeg() finally returned
+
+  The host log at %TEMP%\bilidl_host.log also records, since v1.20.3:
+    - AppDir and the expected ffmpeg path on every start
+    - the ffmpeg actually found on every ping / merge / transcode
+
+  Between the two you can tell immediately whether the path is computed wrong or the
+  host is not being called at all.
+  Note: host.exe is a GUI-subsystem program, so seeing "no output" when you double-click
+        it is expected -- hence the self check writes a file instead of printing.
 
 
 【How to tell it worked】

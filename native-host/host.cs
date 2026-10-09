@@ -77,12 +77,36 @@ class BiliDlHost
         }
 
         Log("host 启动");
+        // 把关键路径记下来：排查「明明有 ffmpeg 却说找不到」时，这条最有用
+        // Record the key paths: this line is the most useful when debugging "ffmpeg exists but is not found"
+        Log("  AppDir      = " + AppDir);
+        Log("  期望的 ffmpeg = " + Path.Combine(AppDir, "bin\\ffmpeg.exe") + "  存在=" + File.Exists(Path.Combine(AppDir, "bin\\ffmpeg.exe")));
 
         // --version 之类的手动调试模式
         // Manual debug mode, e.g. --version
         if (args.Length > 0 && args[0] == "--selfcheck")
         {
-            Console.Error.WriteLine("ffmpeg: " + (FindFfmpeg() ?? "未找到"));
+            // 这个 exe 是 /target:winexe（GUI 子系统），Console.Error 在双击或管道下
+            // 都可能写到空流里 —— 所以结果也写一份到 selfcheck.txt，那才是靠得住的。
+            // This exe is /target:winexe (GUI subsystem), so Console.Error may go nowhere.
+            // The result is therefore also written to selfcheck.txt, which can be relied on.
+            string found = FindFfmpeg();
+            List<string> rep = new List<string>();
+            rep.Add("BiliDL host 自检 / self check");
+            rep.Add("");
+            rep.Add("AppDir                : " + AppDir);
+            rep.Add("期望的 ffmpeg 路径    : " + Path.Combine(AppDir, "bin\\ffmpeg.exe"));
+            rep.Add("该文件存在            : " + File.Exists(Path.Combine(AppDir, "bin\\ffmpeg.exe")));
+            rep.Add("BILIDL_FFMPEG 环境变量: " + (Environment.GetEnvironmentVariable("BILIDL_FFMPEG") ?? "(未设置)"));
+            rep.Add("FindFfmpeg() 的结果   : " + (found ?? "(未找到)"));
+            rep.Add("");
+            rep.Add("时间 / at             : " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            try
+            {
+                System.IO.File.WriteAllLines(Path.Combine(AppDir, "selfcheck.txt"), rep.ToArray(), new UTF8Encoding(false));
+            }
+            catch { }
+            try { Console.Error.WriteLine("ffmpeg: " + (found ?? "未找到")); } catch { }
             return 0;
         }
 
@@ -244,8 +268,23 @@ class BiliDlHost
     {
         get
         {
-            try { return Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location); }
-            catch { return AppDomain.CurrentDomain.BaseDirectory; }
+            // 优先用 exe 的实际位置；拿不到再退回 BaseDirectory。
+            // 两个都试是有原因的：某些安全软件会「虚拟化」启动路径，
+            // 只认其中一个就可能找错目录，于是明明 bin\ffmpeg.exe 在，却报「未找到」。
+            // Prefer the real exe location, then fall back to BaseDirectory. Both are tried
+            // because some security tools virtualise the launch path; trusting only one can
+            // resolve to the wrong directory and report "not found" while bin\ffmpeg.exe exists.
+            try
+            {
+                string loc = Assembly.GetExecutingAssembly().Location;
+                if (!string.IsNullOrEmpty(loc))
+                {
+                    string dir = Path.GetDirectoryName(loc);
+                    if (!string.IsNullOrEmpty(dir)) return dir.TrimEnd('\\');
+                }
+            }
+            catch { }
+            return AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
         }
     }
 
@@ -287,6 +326,9 @@ class BiliDlHost
     static void HandlePing()
     {
         string ffmpeg = FindFfmpeg();
+        // 浏览器报「未检测到 ffmpeg」时，这行日志能立刻说明宿主这边到底找到了什么
+        // When the browser says "no ffmpeg detected", this line shows what the host actually found
+        Log("ping -> " + (ffmpeg == null ? "未找到 ffmpeg" : ffmpeg));
         if (ffmpeg == null)
         {
             WriteMessage("{\"ok\":false,\"error\":\"未找到 ffmpeg.exe\"}");
@@ -376,6 +418,7 @@ class BiliDlHost
     static void HandleMerge(string raw)
     {
         string ffmpeg = FindFfmpeg();
+        Log("merge -> ffmpeg " + (ffmpeg == null ? "未找到" : ffmpeg));
         if (ffmpeg == null)
         {
             WriteMessage("{\"type\":\"done\",\"ok\":false,\"error\":\"未找到 ffmpeg.exe。请运行 native-host\\\\install.cmd 自动下载，或把 ffmpeg.exe 放到 native-host\\\\bin\\\\ 下。\"}");
@@ -484,6 +527,7 @@ class BiliDlHost
     static void HandleTranscode(string raw)
     {
         string ffmpeg = FindFfmpeg();
+        Log("transcode -> ffmpeg " + (ffmpeg == null ? "未找到" : ffmpeg));
         if (ffmpeg == null)
         {
             WriteMessage("{\"type\":\"done\",\"ok\":false,\"error\":\"未找到 ffmpeg.exe。请运行 native-host\\\\install.cmd 自动下载，或把 ffmpeg.exe 放到 native-host\\\\bin\\\\ 下。\"}");
