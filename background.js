@@ -437,6 +437,55 @@ function nativeMerge(msg, onProgress, onPort) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// 原生宿主转码：宿主自己下载音频流，再交给 ffmpeg 转 mp3。
+// Native host transcoding: the host downloads the audio itself and hands it to ffmpeg.
+// 比扩展内的纯 JS 编码器快得多，扩展侧也不必把整个文件读进内存。
+// Far faster than the in-extension pure-JS encoder, and the extension never buffers the file.
+// ---------------------------------------------------------------------------
+function nativeTranscode(msg, onProgress, onPort) {
+    return new Promise((resolve, reject) => {
+        let port;
+        try {
+            port = chrome.runtime.connectNative(NATIVE_HOST);
+        } catch (e) {
+            reject(new Error(String(e && e.message ? e.message : e)));
+            return;
+        }
+        if (onPort) onPort(port);   // 交给上层，取消时好下发 cancel / handed to the caller so it can dispatch a cancel
+        let settled = false;
+        const finish = (err, res) => {
+            if (settled) return;
+            settled = true;
+            try { port.disconnect(); } catch (e) { /* ignore */ }
+            if (err) reject(err); else resolve(res);
+        };
+        port.onMessage.addListener((m) => {
+            if (!m) return;
+            if (m.type === 'progress') { onProgress(m); return; }
+            if (m.type === 'done') {
+                if (m.ok) {
+                    finish(null, m);
+                } else {
+                    const err = new Error(m.error || 'FFmpeg 转码失败');
+                    if (m.cancelled) err.cancelled = true;
+                    finish(err);
+                }
+            }
+        });
+        port.onDisconnect.addListener(() => {
+            const err = chrome.runtime.lastError;
+            finish(new Error(err && err.message ? err.message : '原生宿主连接中断'));
+        });
+        port.postMessage({
+            action: 'transcode',
+            audioUrl: msg.audioUrl,
+            filename: msg.filename,
+            bitrate: msg.bitrate || 192
+        });
+    });
+}
+
 chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== 'bili-dl') return;
 
@@ -517,6 +566,30 @@ chrome.runtime.onConnect.addListener((port) => {
             } catch (err) {
                 if (err && err.cancelled) console.log('[bili-dl] 宿主合并已取消');
                 else console.error('[bili-dl] 宿主合并失败:', err);
+                safePost(port, {
+                    type: 'nativeDone',
+                    ok: false,
+                    cancelled: !!(err && err.cancelled),
+                    error: err && err.message ? err.message : String(err)
+                });
+            } finally {
+                nativePort = null;
+                stopKeepAlive();
+            }
+            return;
+        }
+
+        if (msg.type === 'nativeTranscode') {
+            startKeepAlive();
+            try {
+                const res = await nativeTranscode(msg, (m) => {
+                    safePost(port, { type: 'nativeProgress', phase: m.phase, label: m.label, percent: m.percent });
+                }, (p) => { nativePort = p; });
+                console.log('[bili-dl] 宿主转码完成:', res.output, res.size);
+                safePost(port, { type: 'nativeDone', ok: true, output: res.output, size: res.size });
+            } catch (err) {
+                if (err && err.cancelled) console.log('[bili-dl] 宿主转码已取消');
+                else console.error('[bili-dl] 宿主转码失败:', err);
                 safePost(port, {
                     type: 'nativeDone',
                     ok: false,

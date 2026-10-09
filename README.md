@@ -27,8 +27,9 @@
 
 - **档位菜单**：按「档位 + 编码」分开列出，兼容性优先选 H.264，省流量选 HEVC / AV1
 - **三种下载**：仅音频（`.m4a` / `.mp3`）、仅视频（`.mp4`）、视频+音频（自动合并成单个 MP4）
-- **音频格式可选**：仅音频支持 `m4a`（原声直存，最快）或 `mp3`（本地转码 192kbps）。
-  转码在浏览器里完成，**不需要 ffmpeg、也不需要联网**
+- **音频格式可选**：仅音频支持 `m4a`（原声直存，最快）或 `mp3`（192kbps 转码）。
+  **本机装了 FFmpeg 就自动交给它**（快得多、不占页面内存）；没装则在浏览器里用内置编码器转，
+  **不需要安装任何东西、也不联网**
 - **自动合并**：搬运 MP4 盒子 + 改写 4 字节 track_ID，**不转码**，画质音质零损失
 - **暂停 / 继续 / 取消**：三条下载通道都支持，取消不会触发重试
 - **多分P**：自动识别当前播放的分P，切P自动重新读取档位
@@ -177,7 +178,8 @@ Unlike "sniff the highest quality" tools it does not guess: whatever the API han
 - **Tier menu** — one entry per "tier + codec"; pick H.264 for compatibility or HEVC / AV1 to save bandwidth
 - **Three download modes** — audio only (`.m4a` / `.mp3`), video only (`.mp4`), or video + audio merged into a single MP4
 - **Selectable audio format** — audio-only downloads can be `m4a` (saved as-is, fastest) or `mp3`
-  (transcoded locally at 192kbps). Transcoding happens in the browser: **no ffmpeg, no network**
+  (192kbps). **A local FFmpeg is used automatically when present** (much faster, no page memory);
+  otherwise it transcodes in the browser with a built-in encoder: **nothing to install, no network**
 - **Lossless merge** — moves MP4 boxes and rewrites a 4-byte track_ID; **no re-encoding**, nothing is lost
 - **Pause / resume / cancel** — supported across all three download channels, and cancelling never retries
 - **Multi-part support** — detects the part you are watching and refreshes the tier list when you switch

@@ -185,6 +185,10 @@
 【Install (three steps)】
 
   1. Double-click install.cmd   (no admin rights needed; it writes the current user's registry)
+
+  With the host installed, two things use it automatically:
+    - video + audio merging (lossless remux)
+    - mp3 transcoding, when Audio format is set to mp3 (much faster than the built-in encoder)
         It does three things, in order:
           1) writes the host manifest com.bilidl.merger.json pointing at host.exe's absolute path
           2) registers three browsers under HKCU: Chrome / Edge / Chromium (unused ones do no harm)

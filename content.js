@@ -1188,6 +1188,49 @@
         });
     }
 
+    // 让原生宿主自己下载并转码成 mp3，返回它写出的文件信息。
+    // Ask the native host to download and transcode to mp3; resolves with the file it wrote.
+    // 好处：宿主直接用 ffmpeg，比内置 JS 编码器快得多，页面也不必缓存整个音频。
+    // Why: the host uses ffmpeg directly -- far faster than the built-in JS encoder, and the
+    // page never has to buffer the whole audio.
+    function nativeTranscodeFile(audioUrl, filename, bitrate, onProgress) {
+        return new Promise((resolve, reject) => {
+            let port;
+            try { port = chrome.runtime.connect({ name: 'bili-dl' }); }
+            catch (e) { reject(new Error('扩展上下文已失效，请刷新页面')); return; }
+
+            dlControl.port = port;      // 挂到控制层，取消时会给宿主发 cancel / registered with the control layer; cancel is forwarded to the host
+            dlControl.native = true;
+
+            let settled = false;
+            const finish = (err, res) => {
+                if (settled) return;
+                settled = true;
+                try { port.disconnect(); } catch (e) { /* ignore */ }
+                if (err) reject(err); else resolve(res);
+            };
+            port.onMessage.addListener((msg) => {
+                if (!msg) return;
+                if (msg.type === 'nativeProgress') { if (onProgress) onProgress(msg); }
+                else if (msg.type === 'nativeDone') {
+                    if (msg.ok) finish(null, msg);
+                    else {
+                        const e = new Error(msg.error || 'FFmpeg 转码失败');
+                        if (msg.cancelled) e.cancelled = true;
+                        finish(e);
+                    }
+                }
+            });
+            port.onDisconnect.addListener(() => {
+                const err = chrome.runtime && chrome.runtime.lastError;
+                finish(dlControl.cancelled
+                    ? cancelledError()
+                    : new Error(err && err.message ? err.message : '原生宿主连接中断'));
+            });
+            port.postMessage({ type: 'nativeTranscode', audioUrl, filename, bitrate });
+        });
+    }
+
     // ===================== 下载控制：暂停 / 取消 =====================
     // ===================== Download control: pause / cancel =====================
     // 三条下载通道（页面直连 / 后台 Service Worker / 原生宿主）统一由这里控制：
@@ -1334,6 +1377,33 @@
             if (!audio) throw new Error('该视频没有独立的音频流');
 
             const wantMp3 = currentAudioFormat() === 'mp3';
+
+            // mp3 且本机有 ffmpeg 时，直接交给宿主下载 + 转码：
+            // 既不用把整个音频读进页面内存，也比内置 JS 编码器快得多。
+            // With mp3 and a local ffmpeg, hand it to the host to download and transcode: the page
+            // never buffers the audio and it is far faster than the built-in JS encoder.
+            if (wantMp3) {
+                const probe = await nativeAvailable();
+                if (probe && probe.ok) {
+                    try {
+                        btn.textContent = 'FFmpeg 转码中…';
+                        const mp3Name = outputName(info, 'mp3');
+                        const res = await nativeTranscodeFile(audio.url, mp3Name, MP3_BITRATE, (m) => {
+                            btn.textContent = (m.label || '转码') + ' ' + m.percent + '%';
+                        });
+                        const aq = qualityLabel(AUDIO_QUALITY_NAMES, audio.quality);
+                        console.log(`✅ 已下载 P${info.p}/${info.total}: ${mp3Name}（本地 FFmpeg）`);
+                        notify(`✅ 音频下载完成！（本地 FFmpeg 转码）\n当前分P: P${info.p}/${info.total}\n音质: ${aq} ${codecFamily(audio.codecs)} ${kbps(audio.bandwidth)}\n转码: m4a → mp3 ${MP3_BITRATE}kbps\n\n文件：${res.output}`);
+                        return;
+                    } catch (e) {
+                        if (isCancelled(e)) throw e;
+                        console.warn('[bili-dl] 本地 FFmpeg 转码失败，改用内置编码器：' + (e && e.message));
+                    }
+                } else {
+                    console.log('[bili-dl] 未检测到本地 FFmpeg，使用内置编码器转码' +
+                        (probe && probe.error ? '（' + probe.error + '）' : ''));
+                }
+            }
 
             // 无论哪种格式都得先取到原始 m4a：m4a 直接落盘，mp3 再解码重编码
             // Either way the raw m4a must be fetched first: saved as-is, or decoded and re-encoded

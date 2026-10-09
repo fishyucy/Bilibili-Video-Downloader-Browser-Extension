@@ -120,6 +120,7 @@ class BiliDlHost
             if (action == "quit") { Log("host 退出"); break; }
             if (action == "ping") { HandlePing(); continue; }
             if (action == "merge") { HandleMerge(raw); continue; }
+            if (action == "transcode") { HandleTranscode(raw); continue; }
 
             WriteMessage("{\"ok\":false,\"error\":\"" + Escape("未知指令: " + action) + "\"}");
         }
@@ -465,6 +466,135 @@ class BiliDlHost
         finally
         {
             try { if (File.Exists(tmpVideo)) File.Delete(tmpVideo); } catch { }
+            try { if (File.Exists(tmpAudio)) File.Delete(tmpAudio); } catch { }
+        }
+    }
+
+    // ---------------------------------------------------------------- 转码
+    // ---------------------------------------------------------------- Transcode
+    // 把音频流转成 mp3：宿主自己下载，再交给 ffmpeg。扩展侧因此不必把整个
+    // 文件读进内存，也比纯 JS 编码器快得多。
+    // Turn an audio stream into mp3: the host downloads it and hands it to ffmpeg, so the
+    // extension never buffers the whole file and it is far faster than a pure-JS encoder.
+    static void HandleTranscode(string raw)
+    {
+        string ffmpeg = FindFfmpeg();
+        if (ffmpeg == null)
+        {
+            WriteMessage("{\"type\":\"done\",\"ok\":false,\"error\":\"未找到 ffmpeg.exe。请运行 native-host\\\\install.cmd 自动下载，或把 ffmpeg.exe 放到 native-host\\\\bin\\\\ 下。\"}");
+            return;
+        }
+
+        string audioUrl = GetString(raw, "audioUrl");
+        if (string.IsNullOrEmpty(audioUrl))
+        {
+            WriteMessage("{\"type\":\"done\",\"ok\":false,\"error\":\"缺少音频地址\"}");
+            return;
+        }
+
+        string filename = SanitizeName(GetString(raw, "filename"));
+        // 兜底名按目标格式来（正常都会传文件名） / fallback name follows the target format (a name is normally supplied)
+        if (filename == "bilibili.mp4") filename = "bilibili.mp3";
+
+        int bitrate = 192;
+        string bitrateText = GetString(raw, "bitrate");
+        if (!string.IsNullOrEmpty(bitrateText))
+        {
+            int parsed;
+            if (int.TryParse(bitrateText, out parsed) && parsed >= 32 && parsed <= 320) bitrate = parsed;
+        }
+
+        string outDir = GetString(raw, "outDir");
+        if (string.IsNullOrEmpty(outDir)) outDir = Environment.GetEnvironmentVariable("BILIDL_OUTDIR");
+        if (string.IsNullOrEmpty(outDir))
+        {
+            outDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        }
+
+        // 先确认这份 ffmpeg 带 mp3 编码器，再开始下载：否则下完一遍才发现转不了，纯浪费
+        // Check for the mp3 encoder before downloading; otherwise a build without it wastes the whole download
+        string encoders = "";
+        try { encoders = RunCapture(ffmpeg, "-hide_banner -encoders"); }
+        catch { encoders = ""; }
+        if (encoders.IndexOf("libmp3lame", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            WriteMessage("{\"type\":\"done\",\"ok\":false,\"error\":\"这份 ffmpeg 不带 libmp3lame（mp3 编码器），请换一个完整构建\"}");
+            return;
+        }
+
+        hCancelled = false;   // 每次转码都从干净状态开始 / every transcode starts from a clean state
+        hPaused = false;
+
+        string id = Guid.NewGuid().ToString("N");
+        string tmpAudio = Path.Combine(Path.GetTempPath(), "bilidl_" + id + "_t.m4s");
+        string outFile = Path.Combine(outDir, filename);
+
+        try
+        {
+            if (!Directory.Exists(outDir)) Directory.CreateDirectory(outDir);
+
+            WriteMessage("{\"type\":\"progress\",\"phase\":\"download\",\"label\":\"音频\",\"percent\":1}");
+            DownloadWithReferer(audioUrl, tmpAudio, 1, 69, "音频");
+
+            WriteMessage("{\"type\":\"progress\",\"phase\":\"transcode\",\"percent\":80}");
+
+            ProcessStartInfo psi = new ProcessStartInfo();
+            psi.FileName = ffmpeg;
+            psi.Arguments = "-hide_banner -nostdin -y -loglevel error -i \"" + tmpAudio +
+                            "\" -vn -c:a libmp3lame -b:a " + bitrate + "k \"" + outFile + "\"";
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+
+            Log("ffmpeg " + psi.Arguments);
+            Process p = Process.Start(psi);
+
+            // 和合并一样：轮询等待，这样取消能立刻生效 / poll like the merge does, so cancel stays responsive
+            StringBuilder errBuf = new StringBuilder();
+            p.ErrorDataReceived += delegate (object sender, DataReceivedEventArgs e)
+            {
+                if (e.Data != null) { lock (errBuf) { errBuf.AppendLine(e.Data); } }
+            };
+            p.BeginErrorReadLine();
+            while (!p.WaitForExit(200))
+            {
+                if (hCancelled)
+                {
+                    try { p.Kill(); } catch { }
+                    try { p.WaitForExit(2000); } catch { }
+                    throw new OperationCanceledException("已取消");
+                }
+            }
+            p.CancelErrorRead();
+
+            string stderr;
+            lock (errBuf) { stderr = errBuf.ToString(); }
+
+            if (p.ExitCode != 0)
+            {
+                throw new Exception("FFmpeg 转码失败（退出码 " + p.ExitCode + "）：" +
+                                    stderr.Replace("\r", " ").Replace("\n", " ").Trim());
+            }
+
+            long size = 0;
+            if (File.Exists(outFile)) size = new FileInfo(outFile).Length;
+            if (size <= 0) throw new Exception("转码结果为空文件");
+
+            WriteMessage("{\"type\":\"done\",\"ok\":true,\"output\":\"" + Escape(outFile) + "\",\"size\":" + size + "}");
+        }
+        catch (OperationCanceledException)
+        {
+            Log("转码已取消");
+            WriteMessage("{\"type\":\"done\",\"ok\":false,\"cancelled\":true,\"error\":\"已取消\"}");
+        }
+        catch (Exception e)
+        {
+            Log("转码失败: " + e.Message);
+            WriteMessage("{\"type\":\"done\",\"ok\":false,\"error\":\"" + Escape(e.Message) + "\"}");
+        }
+        finally
+        {
             try { if (File.Exists(tmpAudio)) File.Delete(tmpAudio); } catch { }
         }
     }

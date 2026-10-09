@@ -31,12 +31,17 @@ $json = $manifest | ConvertTo-Json -Depth 5
 Write-Host '[1/3] 已生成宿主清单: ' -NoNewline -ForegroundColor Green
 Write-Host $manifestPath
 
-# 2) 写注册表（Chrome / Edge / Chromium 都写一遍，用不到的不影响）
-# 2) Write the registry keys (Chrome / Edge / Chromium all get one; unused ones do no harm)
+# 2) 写注册表（各种 Chromium 系浏览器都写一遍，用不到的不影响）
+# 2) Write the registry keys (every Chromium-based browser gets one; unused ones do no harm)
+#    每个 Chromium 分支在自己的厂商键下找 NativeMessagingHosts，键名写多了不会有副作用。
+#    Each Chromium fork looks under its own vendor key for NativeMessagingHosts; extra keys are harmless.
 $regKeys = @(
     'HKCU:\Software\Google\Chrome\NativeMessagingHosts\' + $HostName,
     'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\' + $HostName,
-    'HKCU:\Software\Chromium\NativeMessagingHosts\' + $HostName
+    'HKCU:\Software\Chromium\NativeMessagingHosts\' + $HostName,
+    'HKCU:\Software\Tabbit Browser\NativeMessagingHosts\' + $HostName,
+    'HKCU:\Software\TabbitBrowser\NativeMessagingHosts\' + $HostName,
+    'HKCU:\Software\Tabbit\NativeMessagingHosts\' + $HostName
 )
 foreach ($key in $regKeys) {
     if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }

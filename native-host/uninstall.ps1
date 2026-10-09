@@ -6,7 +6,10 @@ $HostName = 'com.bilidl.merger'
 $keys = @(
     'HKCU:\Software\Google\Chrome\NativeMessagingHosts\' + $HostName,
     'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\' + $HostName,
-    'HKCU:\Software\Chromium\NativeMessagingHosts\' + $HostName
+    'HKCU:\Software\Chromium\NativeMessagingHosts\' + $HostName,
+    'HKCU:\Software\Tabbit Browser\NativeMessagingHosts\' + $HostName,
+    'HKCU:\Software\TabbitBrowser\NativeMessagingHosts\' + $HostName,
+    'HKCU:\Software\Tabbit\NativeMessagingHosts\' + $HostName
 )
 foreach ($key in $keys) {
     if (Test-Path $key) {

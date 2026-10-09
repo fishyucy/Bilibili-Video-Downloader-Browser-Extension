@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器 · INSTRUCTION
-  版本 1.18.0   Chrome / Edge 扩展（Manifest V3）
+  版本 1.19.0   Chrome / Edge 扩展（Manifest V3）
 ================================================================
 
 
@@ -82,15 +82,22 @@
   面板上的「音频格式」只影响「🎵 音频」这个按钮：
 
     m4a  直接把 B 站的原始音轨存下来：最快，音质与网页播放完全一致（默认）
-    mp3  下完之后在浏览器里转成 192kbps 的 mp3 ——
-         Web Audio 把 m4a（AAC）解码成 PCM，再用 lamejs（纯 JS）编码成 mp3。
-         不需要 ffmpeg、不需要 wasm、也不联网。
-         转码要等几秒到几十秒（看音频多长），期间按钮显示「转码 xx%」，
-         页面可能略微变慢，属正常现象。
+    mp3  转成 192kbps 的 mp3。自动在两条路里挑，你什么都不用设置：
+
+         · 本机装了 FFmpeg（见 native-host\INSTRUCTION.txt）
+           → 交给 FFmpeg 转：快得多，页面也完全不占内存。
+             装好宿主后，这里和「视频+音频」的合并都会自动走它。
+
+         · 没装 → 浏览器里自己转：
+           Web Audio 把 m4a（AAC）解码成 PCM，再用 lamejs（纯 JS）编码成 mp3。
+           不需要 ffmpeg、不需要 wasm、也不联网；
+           长音频要等几秒到几十秒，期间按钮显示「转码 xx%」。
 
   注意：合并下载（🎬🎵 视频+音频）始终使用原始 m4a，不受这个选项影响。
-        转码依赖浏览器自带的 AAC 解码器；万一解码失败会有明确提示，
+        内置转码依赖浏览器自带的 AAC 解码器；万一解码失败会有明确提示，
         把「音频格式」改回 m4a 即可正常下载。
+        若本地 FFmpeg 转码中途失败（例如那份构建不带 mp3 编码器），
+        也会自动退回内置编码器，不会让你白等。
 
 
 【五、档位对照表】
@@ -310,7 +317,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader · INSTRUCTION
-  Version 1.18.0   Chrome / Edge extension (Manifest V3)
+  Version 1.19.0   Chrome / Edge extension (Manifest V3)
 ================================================================
 
 
@@ -392,15 +399,22 @@
   The "Format" dropdown only affects the "🎵 audio" button:
 
     m4a  saves Bilibili's original audio track as-is: fastest, bit-identical to web playback (default)
-    mp3  transcodes after downloading, in the browser, to 192kbps mp3:
-         Web Audio decodes the m4a (AAC) into PCM, then lamejs (pure JS) encodes mp3.
-         No ffmpeg, no wasm, no network.
-         Transcoding takes seconds to tens of seconds depending on length; the button
-         shows "transcoding xx%" and the page may feel slightly slower -- that is expected.
+    mp3  transcodes to 192kbps mp3. It picks between two routes automatically -- nothing to set:
+
+         · A local FFmpeg is installed (see native-host\INSTRUCTION.txt)
+           -> hand it over: much faster, and the page holds nothing in memory.
+              Once the host is installed, both this and the video+audio merge use it.
+
+         · Not installed -> transcode in the browser:
+           Web Audio decodes the m4a (AAC) into PCM, then lamejs (pure JS) encodes mp3.
+           No ffmpeg, no wasm, no network;
+           long tracks take seconds to tens of seconds and the button shows "transcoding xx%".
 
   Note: the merge flow (🎬🎵 video + audio) always uses the original m4a and ignores this
-        setting. Transcoding relies on the browser's built-in AAC decoder; if decoding fails
-        you get an explicit message -- switch the format back to m4a and it downloads fine.
+        setting. The built-in path relies on the browser's AAC decoder; if decoding fails you
+        get an explicit message -- switch the format back to m4a and it downloads fine.
+        If a local FFmpeg transcode fails midway (say that build lacks the mp3 encoder) it
+        falls back to the built-in encoder automatically, so the wait is never wasted.
 
 
 【5. Tier reference】
