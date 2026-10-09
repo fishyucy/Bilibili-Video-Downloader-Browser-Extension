@@ -157,6 +157,10 @@ if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
 // 为什么需要这条路：B 站有时把播放器放进 sandbox iframe，页面内的 <a download> 会被浏览器
 // 拒绝（"Download is disallowed. The frame initiating ... is sandboxed, but the flag
 // 'allow-downloads' is not set"），文件根本落不了盘。扩展发起的下载不受页面沙箱约束。
+// 注意：这里的 url 是 data:，Chrome 会忽略 filename 参数，文件名由上面的
+// onDeterminingFilename 监听器改写回正确值 —— 别删那个监听器。
+// Note: the url here is a data: URL, and Chrome ignores the filename parameter for those; the
+// filename is restored by the onDeterminingFilename listener above -- do not remove it.
 // Why this path is needed: Bilibili sometimes puts the player in a sandboxed iframe, where the
 // browser refuses an in-page <a download> ("Download is disallowed. The frame initiating ...
 // is sandboxed, but the flag 'allow-downloads' is not set") and the file never lands on disk.
@@ -189,88 +193,6 @@ function saveBlobToDisk(dataUrl, filename) {
             });
         } catch (e) {
             resolve({ ok: false, error: String(e && e.message ? e.message : e) });
-        }
-    });
-}
-
-// ---------------------------------------------------------------------------
-// 扩展直下：把原始 CDN 地址交给 chrome.downloads 直接下载。
-// Download straight from the original CDN URL through chrome.downloads.
-// 好处：http(s) 地址的 filename 一定生效、不受页面沙箱约束、页面不用缓存整个文件。
-// Why: for an http(s) URL the filename is honoured, the page sandbox does not apply, and the
-// page never has to buffer the whole file.
-// 走 declarativeNetRequest 的规则补 Referer / Origin，B 站 CDN 才会放行。
-// The declarativeNetRequest rules inject Referer / Origin, without which the Bilibili CDN refuses.
-// ---------------------------------------------------------------------------
-function tryOneDownload(url, filename, onProgress, onStart) {
-    return new Promise((resolve) => {
-        let timer = null;
-        let listener = null;
-
-        const cleanup = () => {
-            if (timer) { clearTimeout(timer); timer = null; }
-            if (listener) {
-                try { chrome.downloads.onChanged.removeListener(listener); } catch (e) { /* ignore */ }
-                listener = null;
-            }
-        };
-
-        try {
-            rememberName(url, filename);
-            chrome.downloads.download({
-                url: url,
-                filename: filename,
-                saveAs: false,
-                conflictAction: 'uniquify'   // 同名文件不覆盖，自动加 (1) / do not overwrite; append (1) instead
-            }, (downloadId) => {
-                const err = chrome.runtime.lastError;
-                if (err || typeof downloadId !== 'number' || downloadId < 0) {
-                    console.warn('[bili-dl] 扩展直下未能启动：' + (err ? err.message : '未返回有效 ID'));
-                    cleanup();
-                    resolve({ ok: false });
-                    return;
-                }
-                if (onStart) onStart(downloadId);
-
-                listener = (delta) => {
-                    if (!delta || delta.id !== downloadId) return;
-
-                    if (delta.bytesReceived && delta.totalBytes && delta.totalBytes.current > 0) {
-                        const pct = Math.min(99, Math.round(delta.bytesReceived.current / delta.totalBytes.current * 100));
-                        if (onProgress) onProgress(pct);
-                    }
-                    if (delta.error) {
-                        const reason = String(delta.error.current || '');
-                        console.warn('[bili-dl] 扩展直下出错：' + reason);
-                        cleanup();
-                        resolve({ ok: false, cancelled: /CANCEL/i.test(reason) });
-                        return;
-                    }
-                    if (delta.state) {
-                        const st = delta.state.current;
-                        if (st === 'complete') {
-                            cleanup();
-                            if (onProgress) onProgress(100);
-                            resolve({ ok: true });
-                        } else if (st === 'interrupted') {
-                            cleanup();
-                            resolve({ ok: false });
-                        }
-                    }
-                };
-                chrome.downloads.onChanged.addListener(listener);
-
-                // 大文件给足时间，别把慢的当失败的 / give big files room; do not mistake slow for broken
-                timer = setTimeout(() => {
-                    console.warn('[bili-dl] 扩展直下超时');
-                    cleanup();
-                    resolve({ ok: false });
-                }, 10 * 60 * 1000);
-            });
-        } catch (e) {
-            cleanup();
-            console.warn('[bili-dl] 扩展直下抛异常：' + (e && e.message ? e.message : e));
-            resolve({ ok: false });
         }
     });
 }
@@ -520,7 +442,6 @@ chrome.runtime.onConnect.addListener((port) => {
 
     let dl = null;             // 本条连接的下载状态（暂停 / 取消） / download state for this connection (pause / cancel)
     let nativePort = null;     // 本条连接的原生宿主 port / native host port for this connection
-    let activeDownloadId = null;   // 扩展直下时的下载 id，供暂停 / 取消 / download id of an extension download, for pause / cancel
 
     port.onMessage.addListener(async (msg) => {
         if (!msg) return;
@@ -529,13 +450,10 @@ chrome.runtime.onConnect.addListener((port) => {
         // ---- Control messages: pause / resume / cancel ----
         if (msg.type === 'pause') {
             if (dl) { dl.paused = true; console.log('[bili-dl] 后台下载已暂停'); }
-            // 扩展直下由 chrome.downloads 自己的暂停实现 / an extension download pauses through chrome.downloads
-            if (activeDownloadId != null) { try { chrome.downloads.pause(activeDownloadId); } catch (e) { /* ignore */ } }
             return;
         }
         if (msg.type === 'resume') {
             if (dl) { dl.paused = false; releaseDlWaiters(dl, false); console.log('[bili-dl] 后台下载已继续'); }
-            if (activeDownloadId != null) { try { chrome.downloads.resume(activeDownloadId); } catch (e) { /* ignore */ } }
             return;
         }
         if (msg.type === 'cancel') {
@@ -546,46 +464,12 @@ chrome.runtime.onConnect.addListener((port) => {
                 try { dl.controller.abort(); } catch (e) { /* ignore */ }
                 console.log('[bili-dl] 后台下载已取消');
             }
-            if (activeDownloadId != null) {
-                try { chrome.downloads.cancel(activeDownloadId); } catch (e) { /* ignore */ }
-                console.log('[bili-dl] 已取消扩展直下');
-            }
             return;
         }
         if (msg.type === 'nativeCancel') {
             if (nativePort) {
                 try { nativePort.postMessage({ action: 'cancel' }); } catch (e) { /* 宿主可能已退出 */ }
                 console.log('[bili-dl] 已向原生宿主发送取消');
-            }
-            return;
-        }
-
-        if (msg.type === 'downloadUrl') {
-            const urls = (Array.isArray(msg.urls) ? msg.urls : [msg.url]).filter(Boolean);
-            if (!urls.length) { safePost(port, { type: 'dlFailed' }); return; }
-
-            startKeepAlive();
-            try {
-                let ok = false;
-                let cancelled = false;
-                for (let i = 0; i < urls.length; i++) {
-                    if (i > 0) console.warn('[bili-dl] 扩展直下改用备用地址 ' + i + '/' + (urls.length - 1));
-                    const r = await tryOneDownload(urls[i], msg.filename, (pct) => {
-                        safePost(port, { type: 'dlProgress', percent: pct });
-                    }, (id) => { activeDownloadId = id; });
-                    activeDownloadId = null;
-                    if (r.ok) { ok = true; break; }
-                    if (r.cancelled) { cancelled = true; break; }
-                }
-                if (cancelled) safePost(port, { type: 'dlCancelled' });
-                else if (ok) console.log('[bili-dl] 扩展直下完成：' + msg.filename);
-                else safePost(port, { type: 'dlFailed' });
-            } catch (err) {
-                console.error('[bili-dl] 扩展直下异常:', err);
-                safePost(port, { type: 'dlFailed' });
-            } finally {
-                activeDownloadId = null;
-                stopKeepAlive();
             }
             return;
         }

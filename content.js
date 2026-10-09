@@ -596,81 +596,25 @@
         return viaWorker;
     }
 
-    // 拿到流数据并落盘：优先让扩展直接下载原始地址，失败才退回页面内下载
-    // Fetch the stream data and write it to disk: prefer having the extension download the
-    // original URL, and fall back to the in-page route only when that fails
+    // 拿到流数据并落盘
+    // Fetch the stream data and write it to disk
+    // 为什么不让扩展直下原始地址：实测 B 站 CDN 会拒绝扩展发起的下载（主地址与各备用地址
+    // 全部失败），而在页内 fetch 反而稳定 200 —— 页面自己带的 Referer / Origin / Cookie
+    // 正是 CDN 校验的那几项。曾经的「扩展直下」通道因此被移除：它既走不通，每次还会在浏览器
+    // 下载列表里留下几条「无法从网站上提取文件」的失败记录。
+    // Why the extension does not download the original URL itself: the Bilibili CDN rejects
+    // extension-initiated downloads (primary and every backup URL alike), while an in-page fetch
+    // returns 200 reliably -- the page supplies exactly the Referer / Origin / Cookie the CDN
+    // checks. That "extension downloads it" channel was therefore removed: it never worked, and
+    // every attempt left a few "failed to extract file from the website" rows in the browser's
+    // download list.
+    // 文件名不靠这条路保证：落盘时由扩展下载接口 + onDeterminingFilename 纠正（见 background.js）。
+    // The filename is not guaranteed by that route anyway: the extension download API plus
+    // onDeterminingFilename correct it at save time (see background.js).
     async function downloadFile(urlOrUrls, filename, onProgress) {
-        const urls = (Array.isArray(urlOrUrls) ? urlOrUrls : [urlOrUrls]).filter(Boolean);
-
-        // 通道 0：扩展直下。http(s) 地址的 filename 一定生效，也不占页面内存。
-        // Channel 0: the extension downloads it. For an http(s) URL the filename is honoured,
-        // and nothing is buffered inside the page.
-        try {
-            const viaExt = await downloadViaExtension(urls, filename, onProgress);
-            if (viaExt) return filename;
-            console.log('[bili-dl] 扩展直下未成功，改用页面内下载');
-        } catch (err) {
-            if (isCancelled(err)) throw err;
-            console.warn('[bili-dl] 扩展直下异常，改用页面内下载：' + (err && err.message));
-        }
-
         const blob = await fetchStreamBlob(urlOrUrls, filename, onProgress);
         await saveBlob(blob, filename);
         return filename;
-    }
-
-    // 通道 0 实现：把原始地址交给后台，由扩展自己的下载接口落盘
-    // Channel 0 implementation: hand the original URLs to the background, which saves them
-    // through the extension's own download API
-    // 为什么不继续用 data: URL：Chrome 对 data: 的下载会忽略 filename，落盘变成默认名「下载」，
-    // 后缀也一起丢了。给一个真实的 http(s) 地址，文件名才由我们说了算。
-    // Why not keep using a data: URL: Chrome ignores the filename for data: downloads and saves
-    // the file under the localized default name, losing the extension with it. With a real
-    // http(s) URL the name stays under our control.
-    function downloadViaExtension(urls, filename, onProgress) {
-        return new Promise((resolve, reject) => {
-            if (!urls.length) { resolve(false); return; }
-            if (!chrome.runtime || !chrome.runtime.id) { resolve(false); return; }
-
-            const port = chrome.runtime.connect({ name: 'bili-dl' });
-            dlControl.port = port;      // 挂到控制层：暂停 / 取消会通过它下发 / registered with the control layer; pause/cancel go through it
-            dlControl.native = false;
-
-            let settled = false;
-            const finish = (res) => {
-                if (settled) return;
-                settled = true;
-                try { port.disconnect(); } catch (e) { /* ignore */ }
-                // 用户主动取消时不要退回页面内通道，否则会又下一遍
-                // On a deliberate cancel do not fall back, or the file downloads a second time
-                if (dlControl.cancelled) { reject(cancelledError()); return; }
-                resolve(res);
-            };
-
-            port.onMessage.addListener((msg) => {
-                if (!msg) return;
-                if (msg.type === 'dlProgress') {
-                    if (onProgress) onProgress(filename, msg.percent);
-                } else if (msg.type === 'dlDone') {
-                    console.log('[bili-dl] 扩展直下完成：' + filename);
-                    finish(true);
-                } else if (msg.type === 'dlCancelled') {
-                    console.log('[bili-dl] 扩展直下已取消');
-                    finish(false);
-                } else if (msg.type === 'dlFailed') {
-                    console.warn('[bili-dl] 扩展直下失败');
-                    finish(false);
-                }
-            });
-
-            port.onDisconnect.addListener(() => {
-                const err = chrome.runtime && chrome.runtime.lastError;
-                if (err) console.warn('[bili-dl] 扩展直下通道中断：' + err.message);
-                finish(false);
-            });
-
-            port.postMessage({ type: 'downloadUrl', urls, filename });
-        });
     }
 
     // 通道 1 实现：页面内流式读取
