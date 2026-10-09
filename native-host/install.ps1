@@ -1,6 +1,15 @@
 ﻿# ===========================================================================
 # 安装 Native Messaging 宿主：写入宿主清单 + 注册表项（当前用户，不需要管理员）
 # Install the Native Messaging host: write the host manifest + registry keys (current user, no admin required)
+#
+# 为什么注册表用 .NET API 而不是 New-Item / Set-Item：
+# Why the registry work goes through the .NET API instead of New-Item / Set-Item:
+#   PowerShell 的注册表 provider 下，New-Item -Path <多级路径> 并不可靠 ——
+#   它可能不创建中间层，于是随后的 Set-Item 报「指定路径下的注册表项不存在」。
+#   Under PowerShell's registry provider, New-Item -Path <deep path> is unreliable: it may not
+#   create the intermediate keys, after which Set-Item fails with "the registry key does not exist".
+#   .NET 的 CreateSubKey 会保证把整条链建出来。
+#   .NET's CreateSubKey guarantees the whole chain is created.
 # ===========================================================================
 $ErrorActionPreference = 'Stop'
 
@@ -35,23 +44,50 @@ Write-Host $manifestPath
 # 2) Write the registry keys (every Chromium-based browser gets one; unused ones do no harm)
 #    每个 Chromium 分支在自己的厂商键下找 NativeMessagingHosts，键名写多了不会有副作用。
 #    Each Chromium fork looks under its own vendor key for NativeMessagingHosts; extra keys are harmless.
-$regKeys = @(
-    'HKCU:\Software\Google\Chrome\NativeMessagingHosts\' + $HostName,
-    'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\' + $HostName,
-    'HKCU:\Software\Chromium\NativeMessagingHosts\' + $HostName,
-    'HKCU:\Software\Tabbit Browser\NativeMessagingHosts\' + $HostName,
-    'HKCU:\Software\TabbitBrowser\NativeMessagingHosts\' + $HostName,
-    'HKCU:\Software\Tabbit\NativeMessagingHosts\' + $HostName
+
+function Register-HostKey([string]$subKey, [string]$value) {
+    $rk = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($subKey)
+    if ($null -eq $rk) { throw ('CreateSubKey 返回空，无法创建 HKCU\' + $subKey) }
+    try { $rk.SetValue('', $value, [Microsoft.Win32.RegistryValueKind]::String) }
+    finally { $rk.Close() }
+}
+
+# 写回读一遍，确认值真的落进去了（避免"看着成功其实没写"）
+# Read it back to confirm the value really landed (guards against a silent no-op)
+function Test-HostKey([string]$subKey, [string]$want) {
+    $rk = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($subKey)
+    if ($null -eq $rk) { return $false }
+    try { return ([string]$rk.GetValue('')) -eq $want }
+    finally { $rk.Close() }
+}
+
+$regSubKeys = @(
+    'Software\Google\Chrome\NativeMessagingHosts\' + $HostName,
+    'Software\Microsoft\Edge\NativeMessagingHosts\' + $HostName,
+    'Software\Chromium\NativeMessagingHosts\' + $HostName,
+    'Software\Tabbit Browser\NativeMessagingHosts\' + $HostName,
+    'Software\TabbitBrowser\NativeMessagingHosts\' + $HostName,
+    'Software\Tabbit\NativeMessagingHosts\' + $HostName
 )
-foreach ($key in $regKeys) {
-    if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
+
+$failed = @()
+foreach ($sub in $regSubKeys) {
+    $full = 'HKCU\' + $sub
     try {
-        Set-ItemProperty -Path $key -Name '(default)' -Value $manifestPath
+        Register-HostKey $sub $manifestPath
+        if (Test-HostKey $sub $manifestPath) {
+            Write-Host '[2/3] 已注册: ' -NoNewline -ForegroundColor Green
+            Write-Host $full
+        } else {
+            Write-Host ('[2/3] 写入后读回不一致: ' + $full) -ForegroundColor Red
+            $failed += $full
+        }
     } catch {
-        Set-Item -Path $key -Value $manifestPath
+        # 单个键失败不该让整个脚本停下：浏览器可能用的正是别的键
+        # One bad key must not abort the run: the browser may well use a different one
+        Write-Host ('[2/3] 注册失败: ' + $full + ' —— ' + $_.Exception.Message) -ForegroundColor Red
+        $failed += $full
     }
-    Write-Host '[2/3] 已注册: ' -NoNewline -ForegroundColor Green
-    Write-Host $key
 }
 
 # 3) 检查 ffmpeg
@@ -81,6 +117,12 @@ if ($ffmpeg) {
 }
 
 Write-Host ''
-Write-Host '安装完成。' -ForegroundColor Cyan
+if ($failed.Count -gt 0) {
+    Write-Host ('注意：有 ' + $failed.Count + ' 个键没能写入：') -ForegroundColor Yellow
+    foreach ($f in $failed) { Write-Host ('  ' + $f) -ForegroundColor Yellow }
+    Write-Host '若浏览器报「无法与宿主通信」，把上面的错误信息发回来即可。' -ForegroundColor Yellow
+} else {
+    Write-Host '安装完成。' -ForegroundColor Cyan
+}
 Write-Host ('扩展 ID: ' + $ExtId)
 Write-Host '接下来：到 chrome://extensions 重新加载扩展（若还没加载过就先加载本目录的上一级文件夹），然后刷新 B 站页面。'
