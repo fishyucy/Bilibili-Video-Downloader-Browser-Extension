@@ -855,10 +855,19 @@
     }
 
     async function blobToMp3(blob, onProgress) {
-        // lamejs 由 vendor/lamejs.iife.js 提供，是内容脚本作用域里的全局变量（不在 window 上）
-        // lamejs comes from vendor/lamejs.iife.js as a global in the content-script scope
-        // (it is NOT a property of window)
-        if (typeof lamejs === 'undefined' || !lamejs.Mp3Encoder) {
+        // lamejs 由 vendor/lamejs.iife.js 提供。IIFE 里是 `var lamejs = ...`，
+        // 落在内容脚本作用域的全局变量上（同源多文件共享同一作用域）；
+        // 但 muxer.js 那种挂 window 的写法本项目也在用，两种都试一遍，免得作用域细节出岔子。
+        // lamejs comes from vendor/lamejs.iife.js. Its IIFE declares `var lamejs = ...`, which
+        // lands on the content-script scope shared by all files; this project also has files
+        // hanging their exports off window (muxer.js). Try both, so a scoping subtlety can
+        // never silently break mp3 encoding.
+        let Lame = null;
+        try { if (typeof lamejs !== 'undefined' && lamejs && lamejs.Mp3Encoder) Lame = lamejs; } catch (e) { /* not in this scope */ }
+        if (!Lame) {
+            try { if (window.lamejs && window.lamejs.Mp3Encoder) Lame = window.lamejs; } catch (e) { /* ignore */ }
+        }
+        if (!Lame) {
             throw new Error('mp3 编码器未加载，请确认 vendor/lamejs.iife.js 存在并重新加载扩展');
         }
 
@@ -894,7 +903,7 @@
 
         console.log(`[bili-dl] 开始转码：${channels} 声道 / ${sampleRate}Hz / ${(frames / sampleRate).toFixed(1)} 秒`);
 
-        const enc = new lamejs.Mp3Encoder(channels, sampleRate, MP3_BITRATE);
+        const enc = new Lame.Mp3Encoder(channels, sampleRate, MP3_BITRATE);
         const parts = [];
         let sinceYield = 0;
         let lastReport = 0;
