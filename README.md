@@ -26,7 +26,9 @@
 ## 特性
 
 - **档位菜单**：按「档位 + 编码」分开列出，兼容性优先选 H.264，省流量选 HEVC / AV1
-- **三种下载**：仅音频（`.m4a`）、仅视频（`.mp4`）、视频+音频（自动合并成单个 MP4）
+- **三种下载**：仅音频（`.m4a` / `.mp3`）、仅视频（`.mp4`）、视频+音频（自动合并成单个 MP4）
+- **音频格式可选**：仅音频支持 `m4a`（原声直存，最快）或 `mp3`（本地转码 192kbps）。
+  转码在浏览器里完成，**不需要 ffmpeg、也不需要联网**
 - **自动合并**：搬运 MP4 盒子 + 改写 4 字节 track_ID，**不转码**，画质音质零损失
 - **暂停 / 继续 / 取消**：三条下载通道都支持，取消不会触发重试
 - **多分P**：自动识别当前播放的分P，切P自动重新读取档位
@@ -80,8 +82,9 @@ install.cmd        :: 注册宿主 + 按需下载 FFmpeg
 
 1. 打开视频页，等右下角档位列表自动填好（约 2 秒；没读到就点「↻ 读取可选档位」）
 2. （可选）在画质 / 音质下拉里选档位，不选就按「最高（自动）」
-3. 点「🎬🎵 视频+音频」，等它下载、合并、弹窗告诉你文件在哪
-4. 中途可随时暂停或取消
+3. （可选）在**音频格式**下拉里选 `m4a` 或 `mp3`；选 mp3 会在音频下完后自动转码
+4. 点「🎬🎵 视频+音频」，等它下载、合并、弹窗告诉你文件在哪
+5. 中途可随时暂停或取消
 
 完整说明（面板图解、档位对照表、常见问题、权限说明）见 **[`INSTRUCTION.txt`](INSTRUCTION.txt)**。
 
@@ -104,6 +107,7 @@ background.js      后台 Service Worker：兜底下载通道（改写请求头 
 quality.js         画质 / 音质选择逻辑（档位排序、编码识别）
 wbi.js             B 站 WBI 签名
 muxer.js           分片 MP4（fMP4）双轨重封装
+vendor/            第三方库：lamejs（mp3 编码，LGPL-3.0）+ 其许可证与来源说明
 INSTRUCTION.txt    完整使用说明书
 LICENSE            GPL-3.0 许可全文
 native-host/       可选：原生 FFmpeg 合并宿主（含单独说明）
@@ -132,12 +136,21 @@ tests/             Node 测试脚本（选流逻辑 / WBI 签名 / 重封装）
 - 只匹配 `https://www.bilibili.com/video/*`，不支持番剧 / 直播 / 付费课程
 - 不做批量下载、不做收藏夹 / 播放列表
 - 高画质与杜比音轨需要对应账号权限（登录 / 大会员），这是 B 站的限制
+- mp3 是**本地转码**（Web Audio 解码 + lamejs 编码），依赖浏览器的 AAC 解码器。
+  长音频转码需要几秒到几十秒并占用一定内存；只想要原声或追求速度，就保持 `m4a`
 
 ## 许可
 
 本项目采用 **GNU General Public License v3.0**，全文见 [`LICENSE`](LICENSE)。
 
 你可以自由使用、修改、分发，但**衍生作品必须同样以 GPL-3.0 开源**。
+
+### 第三方组件
+
+- **[lamejs](https://github.com/shijinyu/lamejs)**（`vendor/lamejs.iife.js`）—— mp3 编码器，
+  版本 `@breezystack/lamejs` 1.2.7，以 **LGPL-3.0** 发布；许可证全文见
+  [`vendor/lamejs-LICENSE.txt`](vendor/lamejs-LICENSE.txt)。仅在音频格式选 mp3 时用到，
+  该文件是官方构建产物，未做任何修改
 
 ## 参考
 
@@ -162,7 +175,9 @@ Unlike "sniff the highest quality" tools it does not guess: whatever the API han
 ## Features
 
 - **Tier menu** — one entry per "tier + codec"; pick H.264 for compatibility or HEVC / AV1 to save bandwidth
-- **Three download modes** — audio only (`.m4a`), video only (`.mp4`), or video + audio merged into a single MP4
+- **Three download modes** — audio only (`.m4a` / `.mp3`), video only (`.mp4`), or video + audio merged into a single MP4
+- **Selectable audio format** — audio-only downloads can be `m4a` (saved as-is, fastest) or `mp3`
+  (transcoded locally at 192kbps). Transcoding happens in the browser: **no ffmpeg, no network**
 - **Lossless merge** — moves MP4 boxes and rewrites a 4-byte track_ID; **no re-encoding**, nothing is lost
 - **Pause / resume / cancel** — supported across all three download channels, and cancelling never retries
 - **Multi-part support** — detects the part you are watching and refreshes the tier list when you switch
@@ -216,8 +231,9 @@ See [`native-host/INSTRUCTION.txt`](native-host/INSTRUCTION.txt) for details and
 
 1. Open a video page and wait ~2s for the tier list (click **↻** if it does not show up)
 2. Optionally pick a quality / audio tier — the default is "best (auto)"
-3. Click **video + audio** and wait for the merge; a dialog shows where the file went
-4. Pause or cancel at any time
+3. Optionally pick an **audio format** (`m4a` or `mp3`); with mp3 the file is transcoded after downloading
+4. Click **video + audio** and wait for the merge; a dialog shows where the file went
+5. Pause or cancel at any time
 
 The full manual (panel diagram, tier reference table, FAQ, permissions) lives in **[`INSTRUCTION.txt`](INSTRUCTION.txt)**.
 
@@ -240,6 +256,7 @@ background.js      Background Service Worker: fallback channel (header rewriting
 quality.js         Tier selection logic (ordering, codec detection)
 wbi.js             Bilibili WBI signature
 muxer.js           Fragmented-MP4 (fMP4) two-track remux
+vendor/            Third-party: lamejs (mp3 encoder, LGPL-3.0) plus its licence and provenance notes
 INSTRUCTION.txt    Full manual
 LICENSE            Full text of the GPL-3.0
 native-host/       Optional native FFmpeg host (own manual inside)
@@ -268,12 +285,22 @@ More in section 8 of [`INSTRUCTION.txt`](INSTRUCTION.txt).
 - Only matches `https://www.bilibili.com/video/*`; no bangumi, live streams or paid courses
 - No batch / playlist / favourites downloading
 - High tiers and Dolby audio depend on your account entitlement (login / premium) — that is Bilibili's rule, not ours
+- mp3 is **transcoded locally** (Web Audio decode + lamejs encode) and relies on the browser's AAC
+  decoder. Long tracks take seconds to tens of seconds and hold some memory; keep `m4a` if you
+  want the untouched original or maximum speed
 
 ## License
 
 Released under the **GNU General Public License v3.0** — see [`LICENSE`](LICENSE) for the full text.
 
 You are free to use, modify and redistribute it, but **derivative projects must also be released under GPL-3.0**.
+
+### Third-party components
+
+- **[lamejs](https://github.com/shijinyu/lamejs)** (`vendor/lamejs.iife.js`) — the mp3 encoder,
+  version `@breezystack/lamejs` 1.2.7, released under **LGPL-3.0**; full licence text in
+  [`vendor/lamejs-LICENSE.txt`](vendor/lamejs-LICENSE.txt). Used only when the audio format is
+  set to mp3. The file is the untouched official build
 
 ## References
 

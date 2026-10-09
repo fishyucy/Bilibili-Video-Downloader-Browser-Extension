@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "B站视频/音频下载器 · Bilibili Video & Audio Downloader",
-  "version": "1.17.4",
+  "version": "1.18.0",
   "author": "fish",
   "description": "B站视频页下载面板：可选画质/音质档位，音视频自动合并为单个 MP4（不转码），支持多分P、暂停与取消 | Download panel for Bilibili video pages: pick any quality/audio tier, auto-merge into one MP4 (no re-encode). Multi-part, pause & cancel.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2Ra73lsEdFo4ttm6gZOTJIkscFqkxxjQ1AaqjODjtvVDR/cfpXsl+/QtL37YuOlxS4M+Px6wmbrGsHgLyxnpWcxKxwnhfx/Ec1cA1el+HXoe7WjOQEfZXiAMRBjoMVptplVVPvE4fRr8cdEGCqNER3Z3EMybih6EkblksPgSqlCl1ALtSawhoX7vBL+YpbcB/WoMy02geoxDrh1F72XqIbhaoZXptVGdsa03wXHoNUMwTUNW4ZbRPpiu11gXIrSPFjoiiDjzmzcGK0+QlTcSa0hjoF8OJ1yLLJJqQdFieKSpnBfHxCTYEeKRDOZJQDJhRBWu6UBq3DgPu0TQooVM9wIDAQAB",
@@ -23,6 +23,7 @@
         "https://www.bilibili.com/video/*"
       ],
       "js": [
+        "vendor/lamejs.iife.js",
         "quality.js",
         "wbi.js",
         "muxer.js",

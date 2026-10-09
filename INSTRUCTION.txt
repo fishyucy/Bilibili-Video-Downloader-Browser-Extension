@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器 · INSTRUCTION
-  版本 1.17.4   Chrome / Edge 扩展（Manifest V3）
+  版本 1.18.0   Chrome / Edge 扩展（Manifest V3）
 ================================================================
 
 
@@ -8,7 +8,8 @@
 
   打开 B 站视频页时，右下角会出现一个下载面板：
     · 列出这个视频真实可用的画质 / 音质档位，由你自己挑
-    · 三种下载方式：音频、仅视频、视频+音频（自动合并成单个 MP4）
+    · 三种下载方式：音频（.m4a 或 .mp3）、仅视频、视频+音频（自动合并成单个 MP4）
+    · 音频可转成 mp3：纯前端转码，不需要 ffmpeg，也不联网
     · 支持暂停 / 继续 / 取消
     · 自动识别当前正在播放的分P（多P视频不用手填）
 
@@ -37,6 +38,7 @@
   ┌──────────────────────────┐
   │ 画质  [1080P · H.264 · 1.9M]   │  ← 下拉选择视频档位
   │ 音质  [192K · AAC · 192kbps]   │  ← 下拉选择音频档位
+  │ 格式  [m4a / mp3]              │  ← 音频格式，只影响「🎵 音频」
   │ [↻ 读取可选档位]                │  ← 手动刷新档位列表
   ├──────────────────────────┤
   │ [🎵 音频]                       │  ← 只下音轨（.m4a）
@@ -63,13 +65,32 @@
   2. （可选）在画质/音质下拉里选想要的档位
      不选就按「最高（自动）」——它按「档位优先、同档挑码率最高」来选
 
-  3. 点「🎬🎵 视频+音频」
+  3. （可选）在「音频格式」下拉里选 m4a 或 mp3
+     （这个选项只影响「🎵 音频」按钮，见下方说明）
+
+  4. 点「🎬🎵 视频+音频」
      → 按钮会依次显示「解析中…」「下载中 xx%」「合并中」
      → 完成后弹窗告诉你文件在哪、多大多清晰
 
-  4. 中途想停：点「⏸ 暂停」（变成「▶ 继续」），或点「✕ 取消」
+  5. 中途想停：点「⏸ 暂停」（变成「▶ 继续」），或点「✕ 取消」
 
   一次只能跑一个下载任务，下载期间三个下载按钮都会被禁用。
+
+
+  ── 关于音频格式 ──
+
+  面板上的「音频格式」只影响「🎵 音频」这个按钮：
+
+    m4a  直接把 B 站的原始音轨存下来：最快，音质与网页播放完全一致（默认）
+    mp3  下完之后在浏览器里转成 192kbps 的 mp3 ——
+         Web Audio 把 m4a（AAC）解码成 PCM，再用 lamejs（纯 JS）编码成 mp3。
+         不需要 ffmpeg、不需要 wasm、也不联网。
+         转码要等几秒到几十秒（看音频多长），期间按钮显示「转码 xx%」，
+         页面可能略微变慢，属正常现象。
+
+  注意：合并下载（🎬🎵 视频+音频）始终使用原始 m4a，不受这个选项影响。
+        转码依赖浏览器自带的 AAC 解码器；万一解码失败会有明确提示，
+        把「音频格式」改回 m4a 即可正常下载。
 
 
 【五、档位对照表】
@@ -247,6 +268,9 @@
         <a download> 会被浏览器拒绝；改用扩展的下载接口后，
         落盘不再受页面沙箱限制，文件名也由扩展准确指定。
 
+  注：mp3 转码完全在本地进行，用到的 lamejs 已经打包在扩展里
+      （vendor/lamejs.iife.js），不需要任何额外权限，也不会发起网络请求。
+
     · host_permissions: *://*/*
         用于向 B 站 CDN 取流（CDN 域名是动态的）。
         代码实际只请求 bilibili 相关域名，不会访问其它网站。
@@ -273,6 +297,8 @@
   quality.js        画质/音质选择逻辑（档位排序、编码识别）
   wbi.js            B 站 WBI 签名
   muxer.js          分片 MP4 重封装（浏览器内合并用）
+  vendor/           第三方库：lamejs（mp3 编码，LGPL-3.0）
+                    内含许可证全文与来源说明，见 vendor\README.txt
   native-host/      可选：原生 FFmpeg 合并宿主
                     详见 native-host\INSTRUCTION.txt
   INSTRUCTION.txt     本文件
@@ -284,7 +310,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader · INSTRUCTION
-  Version 1.17.4   Chrome / Edge extension (Manifest V3)
+  Version 1.18.0   Chrome / Edge extension (Manifest V3)
 ================================================================
 
 
@@ -292,7 +318,8 @@
 
   Opening a Bilibili video page brings up a download panel in the bottom-right corner:
     · lists the quality / audio tiers this video really offers, for you to pick from
-    · three download modes: audio only, video only, video + audio (auto-merged into one MP4)
+    · three download modes: audio only (.m4a or .mp3), video only, video + audio (auto-merged into one MP4)
+    · audio can be transcoded to mp3 purely in the browser -- no ffmpeg, no network
     · pause / resume / cancel
     · detects the part you are watching (no manual entry for multi-part videos)
 
@@ -321,6 +348,7 @@
   ┌──────────────────────────┐
   │ Quality [1080P · H.264 · 1.9M]  │  <- pick the video tier
   │ Audio   [192K · AAC · 192kbps]  │  <- pick the audio tier
+  │ Format  [m4a / mp3]            │  <- audio format; affects "audio" only
   │ [↻ refresh tiers]              │  <- refresh the tier list manually
   ├──────────────────────────┤
   │ [🎵 audio]                     │  <- audio only (.m4a)
@@ -347,13 +375,32 @@
   2. (Optional) pick the tier you want from the quality / audio dropdowns
         Skip it and "best (auto)" applies: highest tier first, then highest bitrate within that tier
 
-  3. Click "🎬🎵 video + audio"
+  3. (Optional) pick an audio format (m4a or mp3)
+        (this only affects the "🎵 audio" button -- see below)
+
+  4. Click "🎬🎵 video + audio"
         -> the button shows "parsing…", "downloading xx%", then "merging"
         -> a dialog tells you where the file is, its size and its specification
 
-  4. To stop midway: click "⏸ pause" (it becomes "▶ resume") or "✕ cancel"
+  5. To stop midway: click "⏸ pause" (it becomes "▶ resume") or "✕ cancel"
 
   Only one download runs at a time; all three download buttons are disabled while it does.
+
+
+  -- About the audio format --
+
+  The "Format" dropdown only affects the "🎵 audio" button:
+
+    m4a  saves Bilibili's original audio track as-is: fastest, bit-identical to web playback (default)
+    mp3  transcodes after downloading, in the browser, to 192kbps mp3:
+         Web Audio decodes the m4a (AAC) into PCM, then lamejs (pure JS) encodes mp3.
+         No ffmpeg, no wasm, no network.
+         Transcoding takes seconds to tens of seconds depending on length; the button
+         shows "transcoding xx%" and the page may feel slightly slower -- that is expected.
+
+  Note: the merge flow (🎬🎵 video + audio) always uses the original m4a and ignores this
+        setting. Transcoding relies on the browser's built-in AAC decoder; if decoding fails
+        you get an explicit message -- switch the format back to m4a and it downloads fine.
 
 
 【5. Tier reference】
@@ -540,6 +587,10 @@
           extension download API lifts the save out of the page sandbox and pins down
           the filename exactly.
 
+  Note: mp3 transcoding happens entirely locally. The lamejs encoder it uses ships inside
+        the extension (vendor/lamejs.iife.js); it needs no extra permission and makes no
+        network requests.
+
     · host_permissions: *://*/*
           Used to fetch streams from the Bilibili CDNs (whose hostnames are dynamic).
           The code only ever requests bilibili-related hosts and touches no other site.
@@ -566,6 +617,8 @@
   quality.js        tier selection logic (ordering, codec detection)
   wbi.js            Bilibili WBI signature
   muxer.js          fragmented-MP4 remux (used for in-browser merging)
+  vendor/           third-party: lamejs (mp3 encoder, LGPL-3.0)
+                    with its full licence and provenance notes, see vendor\README.txt
   native-host/      optional: native FFmpeg merge host
                                       see native-host\INSTRUCTION.txt
   INSTRUCTION.txt   this file
