@@ -30,7 +30,11 @@
   FFmpeg
     get-ffmpeg.cmd       下载 FFmpeg 入口
     get-ffmpeg.ps1       实际干活的下载脚本
-    bin\ffmpeg.exe       真正干活的 FFmpeg（安装/下载后才会出现）
+    find-ffmpeg.exe      在本机找现成的 FFmpeg 并装进 bin\（下载超时/失败时用这个）
+    find_ffmpeg.cs       find-ffmpeg.exe 的源码
+    bin\ffmpeg.exe       真正干活的 FFmpeg（安装 / 下载 / 查找后才会出现）
+    bin\ffprobe.exe      有的话会顺手一起复制过来
+    bin\ffmpeg.source.txt 记录这份 ffmpeg 的来源、版本与 SHA-256
 
 
 【安装（三步）】
@@ -39,7 +43,10 @@
      它会依次做三件事：
        ① 生成宿主清单 com.bilidl.merger.json，里面指向 host.exe 的绝对路径
        ② 在 HKCU 下注册三个浏览器：Chrome / Edge / Chromium（用不到的没有影响）
-       ③ 检查 FFmpeg，找不到会问你要不要现在自动下载
+       ③ 检查 FFmpeg。找不到时给你两条路：
+          [D] 从 GitHub 下载一份（约 90MB，国内可能超时）
+          [F] 先在本机找现成的（推荐）：会运行 find-ffmpeg.exe，
+              自动搜索 + 校验，找到就复制进 bin\，以后一直用它
 
   2. 打开 chrome://extensions，点扩展卡片上的「重新加载」
      （如果还没加载过扩展：先按上级目录的《INSTRUCTION.txt》把扩展加载进来）
@@ -52,16 +59,34 @@
 
 【FFmpeg 从哪来】
 
-  默认从 GitHub 的 BtbN/FFmpeg-Builds 下载 win64-gpl 静态构建（约 90MB），
-  下载后只把里面的 ffmpeg.exe 抽出来放到 bin\ 下。
+  三条路，推荐第一条：
 
-  宿主查找 FFmpeg 的顺序是：
-    ① 环境变量 BILIDL_FFMPEG 指定的路径
-    ② native-host\bin\ffmpeg.exe
-    ③ 系统 PATH 里的 ffmpeg
+  1) 用本机已有的（最快，不用下载）
+     运行 find-ffmpeg.exe（install.cmd 里选 F 也会调用它），它会：
+       · 按顺序找：环境变量 → 常见安装位置 → PATH → 各磁盘浅扫（深度 3）
+       · 对每个候选跑一遍 -version 与 -encoders，确认能启动、且带 libmp3lame
+       · 用 SHA-256 去重（内容相同的只留一份）
+       · 找到后复制到 bin\ffmpeg.exe，再算一次哈希确认复制完整
+       · 把来源、版本、哈希写进 bin\ffmpeg.source.txt
+     一个都没找到时，它会让你直接把 ffmpeg.exe 拖进窗口，或给一个目录让它找，
+     并附上下载链接（gyan.dev / BtbN）。
 
-  所以：如果你电脑里已经装了 FFmpeg 并加进了 PATH，就不用再下一份。
-  想指定某个特定版本，设置环境变量 BILIDL_FFMPEG 指向它的绝对路径即可。
+  2) 从 GitHub 下载
+     get-ffmpeg.cmd（或 install.cmd 里选 D）下载 BtbN 的 win64-gpl 静态构建（约 90MB），
+     只抽出里面的 ffmpeg.exe 放进 bin\。5 分钟没动静就判超时，自动转去走第 1 条。
+
+  3) 自己放
+     把任意可用的 ffmpeg.exe 丢进 bin\ 即可。
+
+  宿主查找 FFmpeg 的顺序：
+    ① native-host\bin\ffmpeg.exe   ← 上面三条路的成果都落在这里，优先用它
+    ② 环境变量 BILIDL_FFMPEG 指定的路径
+    ③ native-host\ffmpeg.exe
+    ④ 系统 PATH 里的 ffmpeg
+
+  为什么把 bin\ 放到第一：你选过一次的版本就该固定下来，
+  不该因为后来 PATH 变了又换成别的。
+  想换版本：删掉 bin\ffmpeg.exe 重跑 find-ffmpeg.exe，或直接替换这个文件。
 
 
 【怎么确认装好了】
@@ -179,7 +204,11 @@
   FFmpeg
     get-ffmpeg.cmd       FFmpeg download entry point
     get-ffmpeg.ps1       the script that does the work
-    bin\ffmpeg.exe       the FFmpeg doing the real work (appears after install / download)
+    find-ffmpeg.exe      finds a local FFmpeg and installs it into bin\ (for a failed download)
+    find_ffmpeg.cs       source of find-ffmpeg.exe
+    bin\ffmpeg.exe       the FFmpeg doing the real work (after install / download / locate)
+    bin\ffprobe.exe      copied along when present
+    bin\ffmpeg.source.txt  records where this ffmpeg came from, its version and SHA-256
 
 
 【Install (three steps)】
@@ -192,7 +221,10 @@
         It does three things, in order:
           1) writes the host manifest com.bilidl.merger.json pointing at host.exe's absolute path
           2) registers three browsers under HKCU: Chrome / Edge / Chromium (unused ones do no harm)
-          3) looks for FFmpeg and, if missing, asks whether to download it now
+          3) looks for FFmpeg; if missing it offers two routes:
+             [D] download one from GitHub (about 90MB; may time out on Chinese networks)
+             [F] look for one already on this machine (recommended) -- runs find-ffmpeg.exe,
+                 which searches and verifies, then copies it into bin\ for good
 
   2. Open chrome://extensions and click "Reload" on the extension card
         (If the extension is not loaded yet, follow the INSTRUCTION.txt in the parent folder first.)
@@ -205,16 +237,37 @@
 
 【Where FFmpeg comes from】
 
-  By default it downloads the win64-gpl static build from GitHub's BtbN/FFmpeg-Builds (~90MB)
-  and extracts just ffmpeg.exe into bin\.
+  Three routes; the first is recommended:
+
+  1) Use what this machine already has (fastest, no download)
+     Run find-ffmpeg.exe (install.cmd option F runs it too). It will:
+       - search in order: environment variable -> common install locations -> PATH
+         -> a shallow scan of each drive (depth 3)
+       - probe each candidate with -version and -encoders, confirming it runs and
+         carries libmp3lame
+       - dedupe by SHA-256 (identical files collapse to one)
+       - copy the winner to bin\ffmpeg.exe, then hash it again to confirm the copy
+       - record source, version and hash in bin\ffmpeg.source.txt
+     If nothing turns up it asks you to drag ffmpeg.exe into the window, or to name a
+     folder to search, and prints download links (gyan.dev / BtbN).
+
+  2) Download from GitHub
+     get-ffmpeg.cmd (or install.cmd option D) fetches the BtbN win64-gpl static build
+     (~90MB) and extracts only ffmpeg.exe into bin\. Five minutes without progress counts
+     as a timeout and it falls through to route 1.
+
+  3) Drop one in yourself
+     Put any usable ffmpeg.exe into bin\.
 
   The host looks for FFmpeg in this order:
-    1) the path in the BILIDL_FFMPEG environment variable
-    ② native-host\bin\ffmpeg.exe
-    3) ffmpeg found on the system PATH
+    1) native-host\bin\ffmpeg.exe   <- where all three routes end up; preferred
+    2) the path in the BILIDL_FFMPEG environment variable
+    3) native-host\ffmpeg.exe
+    4) ffmpeg found on the system PATH
 
-  So if FFmpeg is already installed and on your PATH, there is no need to download another copy.
-  To pin a specific build, point the BILIDL_FFMPEG environment variable at its absolute path.
+  Why bin\ comes first: once you have picked a build it should stay put, rather than
+  silently changing when PATH does.
+  To switch builds: delete bin\ffmpeg.exe and rerun find-ffmpeg.exe, or replace it.
 
 
 【How to tell it worked】

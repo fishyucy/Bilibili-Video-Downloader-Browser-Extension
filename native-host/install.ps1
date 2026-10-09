@@ -108,11 +108,35 @@ if ($ffmpeg) {
     Write-Host $ffmpeg
 } else {
     Write-Host '[3/3] 未找到 FFmpeg。' -ForegroundColor Yellow
-    $answer = Read-Host '是否现在自动下载 FFmpeg（约 90MB，来自 GitHub BtbN 构建）? [Y/N]'
-    if ($answer -match '^[Yy]') {
-        & (Join-Path $root 'get-ffmpeg.ps1')
+    Write-Host ''
+    Write-Host '两条路，任选一条：' -ForegroundColor Cyan
+    Write-Host '  [D] 下载一份（约 90MB，来自 GitHub）'
+    Write-Host '  [F] 先在本机找现成的（推荐 —— 国内下载经常超时）'
+    Write-Host '      找到后会把 ffmpeg.exe 复制进 native-host\bin\，以后一直用它。'
+    $answer = Read-Host '选择 [D/F]，直接回车按 F 走'
+    if ($answer -match '^[Dd]') {
+        try {
+            & (Join-Path $root 'get-ffmpeg.ps1')
+        } catch {
+            # 下载超时/失败不当成致命错误：本机往往就有一份能用的
+            # A failed or timed-out download is not fatal: there is often a usable copy locally
+            Write-Host ''
+            Write-Host ('下载失败或超时：' + $_.Exception.Message) -ForegroundColor Red
+            Write-Host '换成本机查找 ...' -ForegroundColor Yellow
+            $finder = Join-Path $root 'find-ffmpeg.exe'
+            if (Test-Path -LiteralPath $finder) { & $finder }
+            else {
+                Write-Host ('没找到 ' + $finder + ' —— 请先运行 build-host.cmd 重新编译。') -ForegroundColor Red
+                Write-Host '也可以手动下载后，把 ffmpeg.exe 放到 native-host\bin\ 下。' -ForegroundColor Yellow
+            }
+        }
     } else {
-        Write-Host '已跳过。可稍后运行 native-host\get-ffmpeg.cmd 下载，或自行把 ffmpeg.exe 放到 native-host\bin\ 下。' -ForegroundColor Yellow
+        $finder = Join-Path $root 'find-ffmpeg.exe'
+        if (Test-Path -LiteralPath $finder) { & $finder }
+        else {
+            Write-Host ('没找到 ' + $finder + ' —— 请先运行 build-host.cmd 重新编译。') -ForegroundColor Red
+            Write-Host '也可以手动下载后，把 ffmpeg.exe 放到 native-host\bin\ 下。' -ForegroundColor Yellow
+        }
     }
 }
 

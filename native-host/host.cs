@@ -253,10 +253,15 @@ class BiliDlHost
     {
         List<string> cands = new List<string>();
 
+        // 优先用 native-host\bin\ffmpeg.exe：install.cmd / find-ffmpeg.exe 会把本机那份复制到
+        // 这里，从此一直用它 —— 用户选过一次就不该再变。
+        // Prefer native-host\bin\ffmpeg.exe: install.cmd / find-ffmpeg.exe copies a local build
+        // there, and that is the one used from then on -- once chosen, it should not drift.
+        cands.Add(Path.Combine(AppDir, "bin\\ffmpeg.exe"));
+
         string envPath = Environment.GetEnvironmentVariable("BILIDL_FFMPEG");
         if (!string.IsNullOrEmpty(envPath)) cands.Add(envPath);
 
-        cands.Add(Path.Combine(AppDir, "bin\\ffmpeg.exe"));
         cands.Add(Path.Combine(AppDir, "ffmpeg.exe"));
 
         string pathVar = Environment.GetEnvironmentVariable("PATH");

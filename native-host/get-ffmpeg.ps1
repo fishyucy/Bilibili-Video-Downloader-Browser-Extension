@@ -15,10 +15,23 @@ Write-Host '正在下载 FFmpeg（约 90MB，来自 GitHub BtbN/FFmpeg-Builds）
 Write-Host $url
 
 $client = New-Object System.Net.Http.HttpClient
-$client.Timeout = [TimeSpan]::FromMinutes(30)
+# 超时压到 5 分钟：国内直连 GitHub 常连不上，与其干等 30 分钟，不如早点失败交给
+# find-ffmpeg.exe 去本机找现成的。
+# Timeout trimmed to 5 minutes: GitHub is often unreachable from China, and failing early beats
+# burning 30 minutes -- install.cmd then hands over to find-ffmpeg.exe to look locally instead.
+$client.Timeout = [TimeSpan]::FromMinutes(5)
 [void]$client.DefaultRequestHeaders.TryAddWithoutValidation('User-Agent', 'Mozilla/5.0')
-$resp = $client.GetAsync($url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).Result
-if (-not $resp.IsSuccessStatusCode) { throw ('下载失败: HTTP ' + [int]$resp.StatusCode) }
+try {
+    $resp = $client.GetAsync($url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).Result
+} catch {
+    $client.Dispose()
+    throw ('下载失败或超时（5 分钟）：' + $_.Exception.Message)
+}
+if (-not $resp.IsSuccessStatusCode) {
+    $code = [int]$resp.StatusCode
+    $client.Dispose()
+    throw ('下载失败: HTTP ' + $code)
+}
 
 $total = 0
 if ($resp.Content.Headers.ContentLength) { $total = [long]$resp.Content.Headers.ContentLength }
