@@ -1125,7 +1125,32 @@
     // Uses the local host process: download both streams with the right referer, then ffmpeg -c copy into one MP4.
     // 宿主没装时自动回退到「分离下载 + 提示手动合并」。
     // When the host is absent it falls back to separate downloads plus a manual merge hint.
-    function nativeAvailable() {
+    // 探测结果缓存：**只缓存成功**。
+    // Probe cache: **successes only**.
+    // 一次探测要起一个 host.exe 进程、再跑一次 ffmpeg -version，约 0.1-0.3 秒；
+    // 缓存住后，同一个 B 站页面里的后续下载就不用再付这笔钱。
+    // One probe spawns host.exe and runs "ffmpeg -version" (~0.1-0.3s); caching it saves that cost
+    // on every later download in the same Bilibili page.
+    // 失败一律不缓存 —— 用户可能刚装好宿主或 ffmpeg，下一次点击就该能成功，
+    // 不该被上一次的「没有」挡住。页面刷新会自然清空。
+    // Failures are never cached: a user who just installed the host or ffmpeg should get a fresh
+    // attempt on the next click rather than a stale "no". A page reload clears this anyway.
+    let nativeProbeCache = null;
+
+    function nativeAvailable(force) {
+        if (!force && nativeProbeCache && nativeProbeCache.ok) {
+            return Promise.resolve(nativeProbeCache);
+        }
+        return nativeProbeOnce().then((res) => {
+            if (res && res.ok) nativeProbeCache = res;   // 只有成功才记住 / remember successes only
+            return res;
+        });
+    }
+
+    // 真正探测一次：起一个连到后台的 port，问它原生宿主在不在、ffmpeg 找没找到。
+    // One real probe: open a port to the background and ask whether the native host is present
+    // and whether ffmpeg was found.
+    function nativeProbeOnce() {
         return new Promise((resolve) => {
             let port;
             try { port = chrome.runtime.connect({ name: 'bili-dl' }); }
