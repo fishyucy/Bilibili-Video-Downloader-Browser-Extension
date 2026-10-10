@@ -26,6 +26,7 @@
     host.exe             宿主程序（扩展通过 Native Messaging 调用它）
     host.cs              宿主源码（只有要自己重新编译时才需要）
     build-host.cmd       用 .NET Framework 的 csc 把 host.cs 编译成 host.exe
+    FFMPEG-NOTICE.txt    关于包里那份 ffmpeg 的来源、授权与源码获取方式（合规声明）
 
   FFmpeg
     get-ffmpeg.cmd       下载 FFmpeg 入口
@@ -59,7 +60,17 @@
 
 【FFmpeg 从哪来】
 
-  三条路，推荐第一条：
+  ── 最省事：下载带 -full 的那个包 ──
+
+  文件名以 -full 结尾的压缩包（bili-dl-native-host-vX.Y.Z-full.zip）里已经装好了
+  ffmpeg.exe（约 97MB，压完约 36MB 的那个包），解压后就躺在 native-host\bin\ 下，
+  不用再下载也不用去找。没有 -full 后缀的精简包不含它 —— 包小，适合只想更新源码的时候。
+
+  两者的区别只在这一个文件；其余内容完全相同。
+
+  下面三条是精简包（或想换一份 ffmpeg）时用的路：
+
+  1) 用本机已有的（最快，不用下载）
 
   1) 用本机已有的（最快，不用下载）
      运行 find-ffmpeg.exe（install.cmd 里选 F 也会调用它），它会：
@@ -228,6 +239,7 @@
     host.exe             the host program the extension calls over Native Messaging
     host.cs              host source (only needed if you rebuild it)
     build-host.cmd       compiles host.cs into host.exe with the .NET Framework csc
+    FFMPEG-NOTICE.txt    source, license and where to get the source of the bundled ffmpeg
 
   FFmpeg
     get-ffmpeg.cmd       FFmpeg download entry point
@@ -265,7 +277,19 @@
 
 【Where FFmpeg comes from】
 
-  Three routes; the first is recommended:
+  -- Easiest: grab the archive with "-full" in its name --
+
+  The archive ending in "-full" (bili-dl-native-host-vX.Y.Z-full.zip) already contains
+  ffmpeg.exe (~97MB, inside a ~36MB zip); after unzipping it is already sitting in
+  native-host\bin\, so there is nothing to download or hunt for. The slim archive --
+  the one without "-full" -- does not include it, which keeps the download small when you
+  only want the updated sources.
+
+  The two differ only in that one file; everything else is identical.
+
+  The three routes below are for the slim archive (or for swapping in a different ffmpeg):
+
+  1) Use what this machine already has (fastest, no download)
 
   1) Use what this machine already has (fastest, no download)
      Run find-ffmpeg.exe (install.cmd option F runs it too). It will:
