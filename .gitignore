@@ -65,6 +65,11 @@ node_modules/
 *.baiduyun.uploading.cfg
 
 
+# 宿主自检的输出（运行时生成，不是项目内容）
+# host self-check output (generated at runtime, not project content)
+native-host/selfcheck.txt
+
+
 # ---------- 编辑器与操作系统 ----------
 .vscode/
 .idea/
