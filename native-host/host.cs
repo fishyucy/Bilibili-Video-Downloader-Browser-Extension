@@ -476,7 +476,9 @@ class BiliDlHost
         string id = Guid.NewGuid().ToString("N");
         string tmpVideo = Path.Combine(Path.GetTempPath(), "bilidl_" + id + "_v.m4s");
         string tmpAudio = Path.Combine(Path.GetTempPath(), "bilidl_" + id + "_a.m4s");
-        string outFile = Path.Combine(outDir, filename);
+        // 先算出一个不冲突的路径：宿主跑 ffmpeg 带 -y，同名会被直接覆盖
+        // Pick a free path first: the host runs ffmpeg with -y, so a name clash would be overwritten
+        string outFile = UniquePath(Path.Combine(outDir, filename));
 
         try
         {
@@ -611,7 +613,9 @@ class BiliDlHost
 
         string id = Guid.NewGuid().ToString("N");
         string tmpAudio = Path.Combine(Path.GetTempPath(), "bilidl_" + id + "_t.m4s");
-        string outFile = Path.Combine(outDir, filename);
+        // 先算出一个不冲突的路径：宿主跑 ffmpeg 带 -y，同名会被直接覆盖
+        // Pick a free path first: the host runs ffmpeg with -y, so a name clash would be overwritten
+        string outFile = UniquePath(Path.Combine(outDir, filename));
 
         try
         {
@@ -683,6 +687,32 @@ class BiliDlHost
         {
             try { if (File.Exists(tmpAudio)) File.Delete(tmpAudio); } catch { }
         }
+    }
+
+    // 目标文件已存在时，按 Windows 的习惯加编号：文件 (1).mp4、文件 (2).mp4 …
+    // 注意编号里那个空格 —— 资源管理器就是这么加的，保持一致。
+    // When the target exists, append a number the way Windows Explorer does: name (1).mp4, name (2).mp4
+    // (note the space) so it matches what users are used to.
+    static string UniquePath(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return path;
+
+            string dir = Path.GetDirectoryName(path);
+            string name = Path.GetFileNameWithoutExtension(path);
+            string ext = Path.GetExtension(path);
+
+            // 上限给足：正常不会有人堆到 10000 个同名文件
+            // Generous cap: nobody legitimately reaches 10000 clashes
+            for (int i = 1; i < 10000; i++)
+            {
+                string candidate = Path.Combine(dir, name + " (" + i + ")" + ext);
+                if (!File.Exists(candidate)) return candidate;
+            }
+        }
+        catch { }
+        return path;   // 兜底：实在找不到就交回原路径 / fall back to the original path
     }
 
     static string SanitizeName(string name)

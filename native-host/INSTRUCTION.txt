@@ -137,6 +137,13 @@
   输出位置：默认 %USERPROFILE%\Downloads
     也可以用环境变量 BILIDL_OUTDIR 指定别的目录。
 
+  目录里已经有同名文件时，会自动加编号，不会覆盖（和资源管理器的规矩一样）：
+
+      视频.mp4  →  视频 (1).mp4  →  视频 (2).mp4  →  …
+
+    mp3 转码的输出也是同样的规则。编号里那个空格是故意的 —— 跟 Windows 一致。
+    （FFmpeg 本身带 -y，会直接覆盖同名文件，所以宿主在调用它之前先把路径算好。）
+
 
 【暂停 / 取消是怎么生效的】
 
@@ -339,6 +346,15 @@
 
   Output location: %USERPROFILE%\Downloads by default
        Set the BILIDL_OUTDIR environment variable to use a different folder.
+
+  If a file of that name is already there, a number is appended instead of overwriting
+  (exactly like Windows Explorer):
+
+      video.mp4  ->  video (1).mp4  ->  video (2).mp4  ->  ...
+
+    The same rule applies to mp3 transcoding output. The space in the number is deliberate,
+    to match Windows. (FFmpeg itself takes -y and would overwrite, so the host settles on a
+    free path before calling it.)
 
 
 【How pause / cancel work】
