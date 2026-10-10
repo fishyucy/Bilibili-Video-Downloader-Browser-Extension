@@ -62,6 +62,25 @@ class BiliDlHost
 
     static int Main(string[] args)
     {
+        // 顶层兜底：任何未捕获异常都写进日志。
+        // 之前遇到的怪现象就是「日志只写了 "host 启动" 就没了」—— 进程静默崩掉，
+        // 从外面完全看不出原因。加上这层之后，崩溃会带着完整堆栈落到日志里。
+        // Top-level safety net: log any uncaught exception. The puzzling symptom was a log that
+        // stopped right after "host 启动" -- the process died silently with no trace. With this
+        // in place a crash lands in the log together with a full stack trace.
+        try
+        {
+            return Run(args);
+        }
+        catch (Exception e)
+        {
+            Log("!! 未捕获异常 / uncaught: " + e.ToString());
+            return 1;
+        }
+    }
+
+    static int Run(string[] args)
+    {
         try { ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; } // TLS 1.2
         catch { }
 
@@ -77,6 +96,13 @@ class BiliDlHost
         }
 
         Log("host 启动");
+        // 把 stdio 的真实类型记下来：如果是 NullStream，说明 GUI 子系统下标准句柄没接上，
+        // 那浏览器那边就会看到 "Error when communicating with the native messaging host."
+        // Record the concrete stdio types: a NullStream means the standard handles were not wired
+        // up under the GUI subsystem, which is exactly what makes the browser report
+        // "Error when communicating with the native messaging host."
+        Log("  stdin  = " + (stdin == null ? "(null)" : stdin.GetType().Name) +
+            "   stdout = " + (stdout == null ? "(null)" : stdout.GetType().Name));
         // 把关键路径记下来：排查「明明有 ffmpeg 却说找不到」时，这条最有用
         // Record the key paths: this line is the most useful when debugging "ffmpeg exists but is not found"
         Log("  AppDir      = " + AppDir);
@@ -284,7 +310,10 @@ class BiliDlHost
                 }
             }
             catch { }
-            return AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
+            // BaseDirectory 理论上不会为 null，但真为 null 时 TrimEnd 会抛；兜一下更稳
+            // BaseDirectory should never be null, but if it ever is, TrimEnd would throw
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            return (baseDir == null ? string.Empty : baseDir.TrimEnd('\\'));
         }
     }
 
