@@ -10,14 +10,18 @@
 # ===========================================================================
 $HostName = 'com.bilidl.merger'
 
-$subKeys = @(
-    'Software\Google\Chrome\NativeMessagingHosts\' + $HostName,
-    'Software\Microsoft\Edge\NativeMessagingHosts\' + $HostName,
-    'Software\Chromium\NativeMessagingHosts\' + $HostName,
-    'Software\Tabbit Browser\NativeMessagingHosts\' + $HostName,
-    'Software\TabbitBrowser\NativeMessagingHosts\' + $HostName,
-    'Software\Tabbit\NativeMessagingHosts\' + $HostName
-)
+# 与 install.ps1 同理：逐个 += 累加。@( ... , ... ) 那种写法在这台机器上会被解析成
+# 嵌套数组，导致只处理一个「键1 键2 键3…」连起来的伪路径，真正的键一个都没删掉。
+# Same reasoning as install.ps1: accumulate with +=. The @( ... , ... ) form got parsed as a
+# nested array here, so only one space-joined pseudo-path was handled and none of the real
+# keys were removed.
+$subKeys = @()
+$subKeys += 'Software\Google\Chrome\NativeMessagingHosts\' + $HostName
+$subKeys += 'Software\Microsoft\Edge\NativeMessagingHosts\' + $HostName
+$subKeys += 'Software\Chromium\NativeMessagingHosts\' + $HostName
+$subKeys += 'Software\Tabbit Browser\NativeMessagingHosts\' + $HostName
+$subKeys += 'Software\TabbitBrowser\NativeMessagingHosts\' + $HostName
+$subKeys += 'Software\Tabbit\NativeMessagingHosts\' + $HostName
 
 foreach ($sub in $subKeys) {
     $full = 'HKCU\' + $sub

@@ -61,14 +61,26 @@ function Test-HostKey([string]$subKey, [string]$want) {
     finally { $rk.Close() }
 }
 
-$regSubKeys = @(
-    'Software\Google\Chrome\NativeMessagingHosts\' + $HostName,
-    'Software\Microsoft\Edge\NativeMessagingHosts\' + $HostName,
-    'Software\Chromium\NativeMessagingHosts\' + $HostName,
-    'Software\Tabbit Browser\NativeMessagingHosts\' + $HostName,
-    'Software\TabbitBrowser\NativeMessagingHosts\' + $HostName,
-    'Software\Tabbit\NativeMessagingHosts\' + $HostName
-)
+# 逐个 += 累加，不要写成 @( ... , ... )。
+# 之前那种写法在这里被解析成了「嵌套数组」：整个 @() 只产出 1 个元素，而那个元素是
+# 6 个字符串组成的数组。于是循环只跑一轮，CreateSubKey 收到的是一串用空格连起来的
+# 伪路径 —— 注册表里凭空多出一个名叫「键1 键2 键3…」的怪键，而浏览器真正要找的键
+# 一个都没建出来，最后就是 "Specified native messaging host not found."
+# Accumulate with += rather than a @( ... , ... ) literal: that form got parsed as a nested
+# array here, so the loop ran once and CreateSubKey received one space-joined pseudo-path.
+# The registry gained a single bogus key and none of the keys the browser looks for, which
+# is exactly why it reported "Specified native messaging host not found."
+$regSubKeys = @()
+$regSubKeys += 'Software\Google\Chrome\NativeMessagingHosts\' + $HostName
+$regSubKeys += 'Software\Microsoft\Edge\NativeMessagingHosts\' + $HostName
+$regSubKeys += 'Software\Chromium\NativeMessagingHosts\' + $HostName
+$regSubKeys += 'Software\Tabbit Browser\NativeMessagingHosts\' + $HostName
+$regSubKeys += 'Software\TabbitBrowser\NativeMessagingHosts\' + $HostName
+$regSubKeys += 'Software\Tabbit\NativeMessagingHosts\' + $HostName
+
+# 先把数量打出来：应该是 6。少了就说明上面又写错了。
+# Print the count first: it must be 6. Fewer means the lines above are malformed again.
+Write-Host ('[2/3] 待注册注册表键: ' + $regSubKeys.Count + ' 个') -ForegroundColor Cyan
 
 $failed = @()
 foreach ($sub in $regSubKeys) {

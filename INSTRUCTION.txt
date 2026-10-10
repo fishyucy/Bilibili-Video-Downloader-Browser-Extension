@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器 · INSTRUCTION
-  版本 1.20.4   Chrome / Edge 扩展（Manifest V3）
+  版本 1.20.5   Chrome / Edge 扩展（Manifest V3）
 ================================================================
 
 
@@ -317,7 +317,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader · INSTRUCTION
-  Version 1.20.4   Chrome / Edge extension (Manifest V3)
+  Version 1.20.5   Chrome / Edge extension (Manifest V3)
 ================================================================
 
 
