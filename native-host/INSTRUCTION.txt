@@ -153,7 +153,8 @@
       视频.mp4  →  视频 (1).mp4  →  视频 (2).mp4  →  …
 
     mp3 转码的输出也是同样的规则。编号里那个空格是故意的 —— 跟 Windows 一致。
-    （FFmpeg 本身带 -y，会直接覆盖同名文件，所以宿主在调用它之前先把路径算好。）
+    （FFmpeg 本身带 -y，会直接覆盖同名文件，所以宿主在真正调用它之前一刻才敲定路径 ——
+    下载期间新冒出来的同名文件也算数。）
 
 
 【暂停 / 取消是怎么生效的】
@@ -378,7 +379,8 @@
 
     The same rule applies to mp3 transcoding output. The space in the number is deliberate,
     to match Windows. (FFmpeg itself takes -y and would overwrite, so the host settles on a
-    free path before calling it.)
+    free path right before it starts writing -- same-named files that appeared during the
+    download count too.)
 
 
 【How pause / cancel work】

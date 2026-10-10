@@ -122,8 +122,8 @@ function rememberName(url, filename) {
 
 if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
     chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-        // 1) URL 精确匹配（扩展直下走的 http(s) 地址走这条）
-        // 1) Exact URL match (this is the path for extension downloads over http(s))
+        // 1) URL 精确匹配（本扩展发起的 blob: 下载就靠这条拿回文件名）
+        // 1) Exact URL match (our own blob: downloads get their name back here)
         for (const u of [item.finalUrl, item.url]) {
             const k = nameKey(u);
             const rec = k ? pendingNames.get(k) : null;
@@ -151,31 +151,32 @@ if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
 }
 
 // ---------------------------------------------------------------------------
-// 落盘：接收内容脚本传来的 blob（base64 的 data: URL），用扩展的下载接口保存。
-// Save to disk: take the blob sent by the content script (as a base64 data: URL) and store
-// it through the extension's own download API.
-// 为什么需要这条路：B 站有时把播放器放进 sandbox iframe，页面内的 <a download> 会被浏览器
-// 拒绝（"Download is disallowed. The frame initiating ... is sandboxed, but the flag
-// 'allow-downloads' is not set"），文件根本落不了盘。扩展发起的下载不受页面沙箱约束。
-// 注意：这里的 url 是 data:，Chrome 会忽略 filename 参数，文件名由上面的
-// onDeterminingFilename 监听器改写回正确值 —— 别删那个监听器。
-// Note: the url here is a data: URL, and Chrome ignores the filename parameter for those; the
-// filename is restored by the onDeterminingFilename listener above -- do not remove it.
-// Why this path is needed: Bilibili sometimes puts the player in a sandboxed iframe, where the
-// browser refuses an in-page <a download> ("Download is disallowed. The frame initiating ...
-// is sandboxed, but the flag 'allow-downloads' is not set") and the file never lands on disk.
-// A download started by the extension is not subject to the page sandbox.
+// 落盘：接收内容脚本传来的地址（首选页面生成的 blob: URL，回退 base64 data: URL），
+// 用扩展自己的下载接口保存。
+// Save to disk: take a URL from the content script (preferably a page-minted blob: URL, with a
+// base64 data: URL as the small-file fallback) and store it via the extension's download API.
+// 为什么这么绕：沙箱页面里 <a download> 会被浏览器拒绝，落盘只能由扩展发起；
+// 而扩展消息单条上限 64MiB，大文件 base64 后必然超限（58MB 的 mp4 就是这么丢的），
+// 所以大文件改为把页面里的 blob: URL 直接交给下载系统读取，字节不经过消息通道。
+// Why the detour: in a sandboxed page <a download> is refused by the browser, so only the
+// extension can save; but a single extension message caps at 64MiB, which a big file exceeds
+// once base64'd (that is how a 58MB mp4 went missing). So big files hand the page's blob: URL to
+// the download system instead -- the bytes never cross the messaging channel.
+// 文件名由上面的 onDeterminingFilename 监听器兜底纠正 —— 别删那个监听器：
+// data: URL 靠它才能拿到正确名字，blob: URL 也统一走它。
+// The onDeterminingFilename listener above is the filename safety net -- do not remove it:
+// data: URLs need it for the correct name, and blob: URLs go through it as well.
 // ---------------------------------------------------------------------------
-function saveBlobToDisk(dataUrl, filename) {
+function saveBlobToDisk(url, filename) {
     return new Promise((resolve) => {
         try {
             if (!chrome.downloads || !chrome.downloads.download) {
                 resolve({ ok: false, error: '扩展缺少 downloads 权限' });
                 return;
             }
-            rememberName(dataUrl, filename);   // 登记意图文件名，供 onDeterminingFilename 纠正 / record the intended name for onDeterminingFilename
+            rememberName(url, filename);   // 登记意图文件名，供 onDeterminingFilename 纠正 / record the intended name for onDeterminingFilename
             chrome.downloads.download({
-                url: dataUrl,
+                url: url,
                 filename: filename,
                 saveAs: false,
                 conflictAction: 'uniquify'   // 同名文件不覆盖，自动加 (1) / do not overwrite; append (1) instead
@@ -197,15 +198,75 @@ function saveBlobToDisk(dataUrl, filename) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// blob: URL 的回收通知
+// Releasing page blob: URLs
+// blob: URL 的数据由「发起下载的那个页面」持有 —— 下载结束（完成或中断）后要通知它
+// revokeObjectURL，否则那份数据会一直占着页面内存，直到页面关闭。
+// A blob: URL's bytes are held by the page that minted it; once the download ends (complete or
+// interrupted) that page must revoke it, or the data sits in page memory until the page closes.
+// ---------------------------------------------------------------------------
+const blobUrlByDownload = new Map();   // downloadId -> { url, tabId }
+
+function releaseBlobUrl(rec) {
+    if (!rec || rec.tabId === undefined || rec.tabId === null) return;
+    try {
+        chrome.tabs.sendMessage(rec.tabId, { type: 'release-object-url', url: rec.url }, () => {
+            // 页面可能已经关掉；读一下 lastError 把它消费掉，免得控制台报未检查的错误
+            // The page may be gone; reading lastError consumes it and keeps the console clean
+            void chrome.runtime.lastError;
+        });
+    } catch (e) { /* ignore */ }
+}
+
+function trackBlobUrl(downloadId, url, tabId) {
+    blobUrlByDownload.set(downloadId, { url: url, tabId: tabId });
+    // 小文件可能在登记之前就已经走完流程，补查一次状态
+    // A small file may already have finished before we got here; check its state once
+    try {
+        chrome.downloads.search({ id: downloadId }, (items) => {
+            const it = items && items[0];
+            if (!it || (it.state !== 'complete' && it.state !== 'interrupted')) return;
+            const rec = blobUrlByDownload.get(downloadId);
+            if (!rec) return;
+            blobUrlByDownload.delete(downloadId);
+            releaseBlobUrl(rec);
+        });
+    } catch (e) { /* ignore */ }
+}
+
+if (chrome.downloads && chrome.downloads.onChanged) {
+    chrome.downloads.onChanged.addListener((delta) => {
+        if (!delta || !delta.state) return;
+        const st = delta.state.current;
+        if (st !== 'complete' && st !== 'interrupted') return;
+        const rec = blobUrlByDownload.get(delta.id);
+        if (!rec) return;
+        blobUrlByDownload.delete(delta.id);
+        releaseBlobUrl(rec);
+    });
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (!msg || msg.type !== 'save-blob') return undefined;   // 不处理的消息交还给其他监听器 / let other listeners have unrelated messages
+    if (!msg || (msg.type !== 'save-blob' && msg.type !== 'save-blob-url')) {
+        return undefined;   // 不处理的消息交还给其他监听器 / let other listeners have unrelated messages
+    }
 
     (async () => {
-        startKeepAlive();   // 大文件落盘期间保住 Service Worker / hold the Service Worker alive while a big file is written
+        startKeepAlive();   // 落盘期间保住 Service Worker / hold the Service Worker alive while a file is written
         try {
-            const res = await saveBlobToDisk(msg.dataUrl, msg.filename);
+            const url = msg.type === 'save-blob-url' ? msg.url : msg.dataUrl;
+            const res = await saveBlobToDisk(url, msg.filename);
             if (!res.ok) console.warn('[bili-dl] 扩展下载失败：' + res.error);
-            else console.log('[bili-dl] 扩展下载已排队：' + msg.filename + ' (id=' + res.downloadId + ')');
+            else {
+                console.log('[bili-dl] 扩展下载已排队' + (msg.type === 'save-blob-url' ? '（blob）' : '（data）') +
+                    '：' + msg.filename + ' (id=' + res.downloadId + ')');
+                // blob: URL 的数据挂在这个页面上，下载结束后要通知它释放（见上面 trackBlobUrl）
+                // The blob: URL's bytes are held by the sending page; ping it to release once done
+                if (msg.type === 'save-blob-url') {
+                    trackBlobUrl(res.downloadId, msg.url, sender && sender.tab ? sender.tab.id : undefined);
+                }
+            }
             sendResponse(res);
         } catch (e) {
             sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });

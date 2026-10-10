@@ -476,9 +476,6 @@ class BiliDlHost
         string id = Guid.NewGuid().ToString("N");
         string tmpVideo = Path.Combine(Path.GetTempPath(), "bilidl_" + id + "_v.m4s");
         string tmpAudio = Path.Combine(Path.GetTempPath(), "bilidl_" + id + "_a.m4s");
-        // 先算出一个不冲突的路径：宿主跑 ffmpeg 带 -y，同名会被直接覆盖
-        // Pick a free path first: the host runs ffmpeg with -y, so a name clash would be overwritten
-        string outFile = UniquePath(Path.Combine(outDir, filename));
 
         try
         {
@@ -491,6 +488,13 @@ class BiliDlHost
             DownloadWithReferer(audioUrl, tmpAudio, 50, 45, "音频");
 
             WriteMessage("{\"type\":\"progress\",\"phase\":\"merge\",\"percent\":96}");
+
+            // 真正开写前一刻才定输出路径：两条流可能下了几分钟，期间目录里新出现的同名文件
+            // 同样要算重名。路径若提前算好，那几分钟里冒出来的同名文件会被 -y 无声覆盖。
+            // Resolve the output path right before writing: the two streams can take minutes, and a
+            // same-named file appearing in the meantime must count as a clash too. A path picked
+            // earlier would let ffmpeg's -y overwrite it silently.
+            string outFile = UniquePath(Path.Combine(outDir, filename));
 
             ProcessStartInfo psi = new ProcessStartInfo();
             psi.FileName = ffmpeg;
@@ -613,9 +617,6 @@ class BiliDlHost
 
         string id = Guid.NewGuid().ToString("N");
         string tmpAudio = Path.Combine(Path.GetTempPath(), "bilidl_" + id + "_t.m4s");
-        // 先算出一个不冲突的路径：宿主跑 ffmpeg 带 -y，同名会被直接覆盖
-        // Pick a free path first: the host runs ffmpeg with -y, so a name clash would be overwritten
-        string outFile = UniquePath(Path.Combine(outDir, filename));
 
         try
         {
@@ -625,6 +626,11 @@ class BiliDlHost
             DownloadWithReferer(audioUrl, tmpAudio, 1, 69, "音频");
 
             WriteMessage("{\"type\":\"progress\",\"phase\":\"transcode\",\"percent\":80}");
+
+            // 同合并：真正开写前一刻再定路径，把下载期间新出现的同名文件也算进重名检测
+            // Like the merge: resolve the path right before writing so files that appeared during
+            // the download are included in the clash check
+            string outFile = UniquePath(Path.Combine(outDir, filename));
 
             ProcessStartInfo psi = new ProcessStartInfo();
             psi.FileName = ffmpeg;

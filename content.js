@@ -45,25 +45,25 @@
         return cleaned.slice(0, len) || 'bilibili_video';
     }
 
-    // 统一提示出口。页面有可能被放进沙箱 iframe，此时 alert() 会被浏览器拦下并抛异常
-    // （"The document is sandboxed, and the 'allow-modals' keyword is not set"），
-    // 那样连「下载成功」的提示都会变成报错。所以：能用 alert 就用（保持原体验），被拦就退回页面内浮层。
-    // Single exit point for messages. The page can sit inside a sandboxed iframe where alert()
-    // is blocked and throws ("The document is sandboxed, and the 'allow-modals' keyword is not
-    // set") -- which would turn even a "download finished" notice into an error. So: use alert
-    // when allowed, otherwise fall back to an in-page toast.
+    // 统一提示出口：一律使用右下角浮层。
+    // 为什么不再用弹窗（alert）：页面被浏览器限制为沙箱时（实测两种情形：顶层 CSP sandbox、
+    // 嵌套沙箱 iframe），alert 会被「静默忽略」——只往控制台写一条
+    // "Ignored call to 'alert()'..."，既不弹窗也不抛异常，从 JS 里无法探测；
+    // 与其在部分环境丢提示，不如统一走浮层（任何环境都渲染，长内容还可复制）。
+    // Single exit point for messages: always the bottom-right toast.
+    // Why alert is gone: in a sandboxed document (measured for both a top-level CSP sandbox
+    // and a nested sandboxed iframe) the browser SILENTLY ignores alert -- it only logs
+    // "Ignored call to 'alert()'..." and neither shows a dialog nor throws, and JS cannot
+    // detect it. Rather than losing notices in some environments, every message goes
+    // through the toast (renders everywhere, long text stays copyable).
     function notify(msg) {
-        try {
-            window.alert(msg);
-            return;
-        } catch (e) {
-            // 沙箱化文档不允许弹窗，改用浮层 / sandboxed: no modals allowed, use the toast
-        }
         showToast(String(msg));
     }
 
     // 页面内浮层：不依赖面板样式，也不需要 allow-modals 权限；点一下可关掉
+    // （现为所有提示的唯一出口，见上面的 notify()；沙箱环境里只有它靠得住）
     // In-page toast: independent of the panel styles, needs no allow-modals, click to dismiss
+    // (now the single path for every notice, via notify() above; the only one that survives sandboxes)
     function showToast(msg) {
         try {
             let box = document.getElementById('bili-dl-toast');
@@ -81,12 +81,21 @@
                 ].join(';');
                 box.title = '点击关闭';
                 box.addEventListener('click', () => { box.style.display = 'none'; });
-                document.body.appendChild(box);
+                // 正常在 document_idle 运行，body 已存在；万一没有就挂到 html 根上
+                // Normally runs at document_idle with body present; if not, attach to the root element
+                (document.body || document.documentElement).appendChild(box);
             }
             box.textContent = msg;
             box.style.display = 'block';
+            // 短消息 12 秒后自动收起；长消息（例如通道 C 的 FFmpeg 命令）留在原地等点击，
+            // 否则还没看完就消失了。
+            // Short messages auto-hide after 12s; long ones (e.g. the channel-C ffmpeg
+            // command) wait for a click, so they are not gone before they are read.
             clearTimeout(showToast._timer);
-            showToast._timer = setTimeout(() => { box.style.display = 'none'; }, 12000);
+            showToast._timer = null;
+            if (String(msg).length <= 160) {
+                showToast._timer = setTimeout(() => { box.style.display = 'none'; }, 12000);
+            }
         } catch (e) {
             // 连浮层都插不进去（极罕见），至少保证控制台有记录
             // If even the toast cannot be inserted (very rare), at least log it
@@ -128,9 +137,11 @@
     // 通过 pagelist 接口获取该BV下所有分P的 cid 和 part 标题
     // Use the pagelist endpoint to get every part's cid and part title for this BV
     async function getPageList(bvid) {
-        const res = await fetch(`https://api.bilibili.com/x/player/pagelist?bvid=${bvid}`, {
-            headers: { 'Referer': 'https://www.bilibili.com/' }
-        }).then(r => r.json());
+        // 不要手写 Referer 头：它属于浏览器「禁止修改头」，fetch 里写了也会被悄悄丢弃。
+        // 页面自己的 Referer / Cookie 由浏览器自动携带，这里直接省掉。
+        // No manual Referer header: it is a forbidden header name and is silently dropped when set
+        // via fetch. The browser already sends the page's own Referer / cookies, so it is omitted.
+        const res = await fetch(`https://api.bilibili.com/x/player/pagelist?bvid=${bvid}`).then(r => r.json());
         if (res.code !== 0) throw new Error('获取分P列表失败');
         return res.data; // [{ cid, part, page, ... }, ...]
     }
@@ -150,9 +161,7 @@
 
         // 获取 aid 与视频主标题
         // Fetch the aid and the video's main title
-        const viewRes = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, {
-            headers: { 'Referer': 'https://www.bilibili.com/' }
-        }).then(r => r.json());
+        const viewRes = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`).then(r => r.json());
         const aid = viewRes.code === 0 ? viewRes.data.aid : '';
         const rawMainTitle = (viewRes.code === 0 && viewRes.data && viewRes.data.title)
             ? String(viewRes.data.title).trim()
@@ -292,8 +301,7 @@
             try {
                 const query = window.BiliWbi.signedQuery(q, nav.mixinKey);
                 res = await fetch(`https://api.bilibili.com/x/player/wbi/playurl?${query}`, {
-                    credentials: 'include',
-                    headers: { 'Referer': 'https://www.bilibili.com/' }
+                    credentials: 'include'
                 }).then(r => r.json());
                 if (!res || res.code !== 0) {
                     console.warn(`[bili-dl] wbi 接口返回 ${res && res.code} ${res && res.message}，改用旧接口`);
@@ -311,14 +319,13 @@
             const url = 'https://api.bilibili.com/x/player/playurl?' + qs;
             try {
                 res = await fetch(url, {
-                    credentials: 'include',
-                    headers: { 'Referer': 'https://www.bilibili.com/' }
+                    credentials: 'include'
                 }).then(r => r.json());
             } catch (e) {
                 // 万一服务端没给 Access-Control-Allow-Credentials，退回匿名请求（画质会被限制，但至少能用）
                 // If the server ever omits Access-Control-Allow-Credentials, retry anonymously (quality suffers, but it works)
                 console.warn('[bili-dl] 带凭据请求被拒，退回匿名请求（画质将受限）：', e && e.message);
-                res = await fetch(url, { headers: { 'Referer': 'https://www.bilibili.com/' } }).then(r => r.json());
+                res = await fetch(url).then(r => r.json());
             }
         }
 
@@ -420,10 +427,7 @@
         // The most direct evidence: replay the player's own request verbatim to see what the web client really gets
         if (player && player.url) {
             try {
-                const r = await fetch(player.url, {
-                    credentials: 'include',
-                    headers: { 'Referer': 'https://www.bilibili.com/' }
-                }).then(r => r.json());
+                const r = await fetch(player.url, { credentials: 'include' }).then(r => r.json());
                 const d = r && r.data && r.data.dash;
                 if (d && hasFlacAudio(d)) {
                     // 播放器自己那条请求能拿到 → 直接沿用
@@ -706,27 +710,37 @@
         });
     }
 
-    // 保存：优先交给扩展的下载接口，页面沙箱拦不住它；扩展不可用时才退回页面内 <a download>
+    // 保存：优先交给扩展的下载接口，页面沙箱拦不住它；扩展不可用时才退回页面内 <a download>。
     // Save: prefer the extension download API, which a page sandbox cannot block; fall back to an
     // in-page <a download> only when the extension side is unavailable.
-    // 为什么不能只用 <a download>：B 站有时把播放器塞进 sandbox iframe，此时浏览器会拒绝这次下载
-    // （"Download is disallowed. The frame initiating ... is sandboxed, but the flag
-    // 'allow-downloads' is not set"），文件根本落不了盘，但日志里却显示"已下载"。
-    // Why <a download> alone is not enough: Bilibili sometimes puts the player in a sandboxed
-    // iframe, and the browser then refuses the download ("Download is disallowed. The frame
-    // initiating ... is sandboxed, but the flag 'allow-downloads' is not set"). The file never
-    // lands on disk even though the log says it was downloaded.
+    // 两条通道各自的坑（都是实测踩出来的）：
+    // Traps measured in the wild for both channels:
+    //   · 页面内 <a download>：沙箱页面会被浏览器直接拒绝（"Download is disallowed..."）；
+    //     不带用户手势的连续多次下载也会被 Chrome 的自动下载拦截静默丢掉 —— 只能当最后的兜底。
+    //   . in-page <a download>: refused outright in a sandboxed page ("Download is disallowed...");
+    //     repeated downloads without a user gesture are silently dropped by Chrome's
+    //     automatic-downloads block too -- strictly a last resort.
+    //   · 扩展通道：数据不再经过消息传递。旧版把整个文件 base64 后塞进一条 sendMessage，
+    //     而扩展消息单条上限是 64MiB —— 58MB 的 mp4 编码后约 77MB，直接超限失败
+    //     （随后只剩那条被沙箱拒绝的兜底，文件就丢了）。现在改为把页面里生成的 blob: URL
+    //     交给扩展下载接口，由浏览器的下载系统直接读取：不搬字节、没有大小上限、不受沙箱影响。
+    //   . extension channel: bytes no longer travel through messages. The old version base64'd the
+    //     whole file into one sendMessage, but extension messages cap at 64MiB -- a 58MB mp4 becomes
+    //     ~77MB and fails outright (leaving only the sandbox-refused fallback, so the file was lost).
+    //     Now the page mints a blob: URL and hands it to the extension download API, which the
+    //     browser's download system reads directly: no byte copying, no size cap, no sandbox issue.
     async function saveBlob(blob, filename) {
         if (!blob || blob.size === 0) throw new Error('下载数据为空，已取消保存');
 
-        // 通道 1：扩展下载接口（data: URL 由扩展自己去取，不受页面沙箱约束）
-        // Channel 1: the extension download API (the extension fetches the data: URL itself,
-        // so the page sandbox does not apply)
+        // 通道 1：扩展下载接口（页面生成 blob: URL，扩展读取；不受页面沙箱约束）
+        // Channel 1: the extension download API (the page mints a blob: URL; the extension reads it;
+        // the page sandbox does not apply)
         const viaExt = await saveViaExtension(blob, filename);
         if (viaExt) return;
 
-        // 通道 2：页面内 <a download> 兜底（非沙箱页面走这里，行为和以前一致）
-        // Channel 2: in-page <a download> as a fallback (non-sandboxed pages end up here, same as before)
+        // 通道 2：页面内 <a download> 兜底（可能被浏览器拒绝，见上面的说明）
+        // Channel 2: in-page <a download> as a last resort (may be refused by the browser, see above)
+        console.warn('[bili-dl] 扩展保存通道不可用，改用页面内下载（沙箱页面可能被浏览器拒绝）');
         const objectUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = objectUrl;
@@ -734,10 +748,13 @@
         link.style.display = 'none';
         document.body.appendChild(link);
         link.click();
+        // 给足时间再释放：万一下载真的开始了，太早 revoke 会把大文件拦腰截断
+        // Leave plenty of time before revoking: if the download did start, revoking too early
+        // would cut a large file in half
         setTimeout(() => {
             try { document.body.removeChild(link); } catch (e) { /* ignore */ }
             URL.revokeObjectURL(objectUrl);
-        }, 60000);
+        }, 600000);
     }
 
     // 按扩展名给 Blob 补上正确的 MIME 类型。
@@ -769,16 +786,89 @@
     // 走扩展的 chrome.downloads 落盘。成功返回 true，扩展不可用或失败返回 false（由调用方兜底）
     // Save through the extension's chrome.downloads. Returns true on success, false when the
     // extension is unavailable or the call failed (the caller then falls back).
-    function saveViaExtension(blob, filename) {
+    async function saveViaExtension(blob, filename) {
+        // 通道 A：blob: URL（首选）—— 数据不经过消息传递，多大都能存
+        // Channel A: blob: URL (preferred) -- the bytes never travel through messages, any size works
+        const viaBlobUrl = await saveViaBlobUrl(blob, filename);
+        if (viaBlobUrl) return true;
+
+        // 通道 B：data: URL —— 仅小文件（≤45MB，base64 膨胀后仍低于 64MiB 消息上限）。
+        // 留着它，是给「blob: URL 万一被下载接口拒绝」的场合留条后路。
+        // Channel B: data: URL -- small files only (<=45MB; after base64 it still fits the 64MiB
+        // message cap). Kept as a safety net in case the download API ever rejects blob: URLs.
+        if (blob.size <= 45 * 1024 * 1024) {
+            const viaDataUrl = await saveViaDataUrl(blob, filename);
+            if (viaDataUrl) return true;
+        }
+        return false;
+    }
+
+    // 首选通道：把页面里生成的 blob: URL 交给扩展下载接口。
+    // Preferred channel: mint a blob: URL in the page and hand it to the extension download API.
+    // 为什么行得通：chrome.downloads 由浏览器的下载系统直接读取该地址（页面沙箱管不着），
+    // 数据始终留在本页内存里，不经过消息通道 —— 没有 64MiB 上限，也没有 base64 膨胀。
+    // 下载结束（完成或中断）时后台会通知本页释放该 URL（见下方 release-object-url 监听）。
+    // Why it works: chrome.downloads is served by the browser's download system (the page sandbox
+    // has no say), and the bytes stay in this page's memory -- no messaging, no 64MiB cap, no
+    // base64 inflation. The background pings us when the download ends so the URL can be released.
+    function saveViaBlobUrl(blob, filename) {
         return new Promise((resolve) => {
             if (!chrome.runtime || !chrome.runtime.id) { resolve(false); return; }
 
-            // 用 FileReader 转成 data: URL 交给后台：blob: 地址在后台上下文里取不到内容，
-            // 且 sendMessage 不能直接传 Blob，所以这里做一次 base64 编码。
-            // Hand a data: URL to the background: a blob: URL is unreadable from the background
-            // context and sendMessage cannot carry a Blob, so encode it as base64 once.
+            let url = '';
+            try { url = URL.createObjectURL(withMimeType(blob, filename)); }
+            catch (e) { resolve(false); return; }
+
+            let settled = false;
+            const done = (ok) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                // 没交出去（或失败）就立刻释放，别白占内存；交出去后由后台在下载结束时通知释放
+                // Release on failure right away; on success the background tells us when to release
+                if (!ok) { try { URL.revokeObjectURL(url); } catch (e) { /* ignore */ } }
+                resolve(ok);
+            };
+            // 这里只等「排进下载队列」，不等文件读完，所以 30 秒很宽裕
+            // We only wait for the download to be queued, not for the bytes to be read
+            const timer = setTimeout(() => {
+                console.warn('[bili-dl] 扩展下载接口超时未应答，改用其它方式保存');
+                done(false);
+            }, 30000);
+
+            try {
+                chrome.runtime.sendMessage({ type: 'save-blob-url', url: url, filename: filename }, (resp) => {
+                    const err = chrome.runtime && chrome.runtime.lastError;
+                    if (err) {
+                        console.warn('[bili-dl] 扩展下载失败：' + err.message);
+                        done(false);
+                        return;
+                    }
+                    if (resp && resp.ok) {
+                        console.log(`[bili-dl] 已通过扩展下载接口保存：${filename}`);
+                        done(true);
+                    } else {
+                        console.warn('[bili-dl] 扩展下载失败：' + ((resp && resp.error) || '未知原因'));
+                        done(false);
+                    }
+                });
+            } catch (e) {
+                done(false);
+            }
+        });
+    }
+
+    // 备用通道：把文件转成 data: URL 交给后台。仅限小文件：base64 会让体积涨三分之一，
+    // 而扩展消息单条上限是 64MiB —— 大文件必须走 blob: 通道。
+    // Fallback channel: encode the file as a data: URL for the background. Small files only:
+    // base64 inflates the payload by a third while a single message caps at 64MiB -- big files
+    // must use the blob: channel.
+    function saveViaDataUrl(blob, filename) {
+        return new Promise((resolve) => {
+            if (!chrome.runtime || !chrome.runtime.id) { resolve(false); return; }
+
             const reader = new FileReader();
-            const TIMEOUT_MS = 120000;   // 大文件编码 + 落盘都要时间 / big files need time to encode and save
+            const TIMEOUT_MS = 120000;   // 编码 + 排队都要时间 / encoding plus queueing can take a while
             let settled = false;
             const done = (ok) => {
                 if (settled) return;
@@ -822,6 +912,18 @@
                 reader.readAsDataURL(withMimeType(blob, filename));
             } catch (e) {
                 done(false);
+            }
+        });
+    }
+
+    // 后台在扩展下载结束（完成或中断）后发来通知，这里释放对应的 blob: URL，
+    // 让页面内存可以回收 —— 不释放的话，文件会一直占着内存直到页面关闭。
+    // The background pings us when the extension download ends (complete or interrupted); release
+    // the blob: URL so the page memory can be reclaimed (otherwise it is held until the page closes).
+    if (chrome.runtime && chrome.runtime.onMessage) {
+        chrome.runtime.onMessage.addListener((msg) => {
+            if (msg && msg.type === 'release-object-url' && typeof msg.url === 'string') {
+                try { URL.revokeObjectURL(msg.url); } catch (e) { /* ignore */ }
             }
         });
     }
@@ -995,7 +1097,12 @@
     function fillSelect(kind, list, labelMap, fallbackKey) {
         const sel = selectEl(kind);
         if (!sel) return;
-        const want = sel.value || fallbackKey || 'auto';
+        // 先保留当前选择，只有还停在「最高（自动）」时才用记住的偏好。
+        // 不能写成 sel.value || fallback：'auto' 本身是真值，会把偏好永远压掉。
+        // Keep the current choice and fall back to the saved preference only while the select is
+        // still on the default "auto". (Not sel.value || fallback: 'auto' is truthy and would
+        // suppress the stored preference forever.)
+        const want = (sel.value && sel.value !== 'auto') ? sel.value : (fallbackKey || 'auto');
 
         sel.innerHTML = '';
         const auto = document.createElement('option');
@@ -1097,9 +1204,14 @@
 
             // 手动刷新时把 Hi-Res 的情况说清楚（自动读取时只在控制台留日志，不打扰）
             // On a manual refresh, spell out the Hi-Res situation (auto-load only logs quietly to the console)
-            const hires = Q.describeHiRes(dash);
+            // 判断直接基于接口数据结构（flac.display / flac.audio），不再匹配描述文案 ——
+            // 以后改文案不会悄悄影响这里的逻辑。
+            // The branch reads the response structure itself (flac.display / flac.audio) rather than
+            // matching message text, so future wording changes can never silently break it.
             const isVip = !!(navCache.account && navCache.account.vipStatus);
-            if (hires.indexOf('当前账号拿不到') > 0) {
+            const hiresAvailable = hasFlacAudio(dash);
+            const hiresBlocked = !hiresAvailable && !!(dash.flac && dash.flac.display);
+            if (hiresBlocked) {
                 notify(isVip
                     ? '提示：这个视频有无损（Hi-Res）音轨，但网页端拿不到。\n\n' +
                       '已实测确认：Hi-Res 属于 APP 端功能，网页接口不下发这条音轨' +
@@ -1107,7 +1219,7 @@
                       '网页端能拿到的最高音质：杜比全景声（若该视频有）或 192K AAC。'
                     : '提示：这个视频有无损（Hi-Res）音轨，但当前账号拿不到。\n' +
                       'Hi-Res 与杜比全景声都需要大会员。');
-            } else if (hires.indexOf('该视频没有') === 0) {
+            } else if (!hiresAvailable) {
                 notify('提示：这个视频没有提供 Hi-Res 无损音轨。\n' +
                     'B 站只有部分投稿带无损音轨，标题里写「Hi-Res」多半是 UP 主的宣传词。');
             }
@@ -1386,6 +1498,12 @@
             }
             console.log('[bili-dl] 已暂停' + (dlControl.native ? '（原生宿主侧的暂停可能不即时）' : ''));
         } else {
+            // 恢复按钮文字：只在前缀还在时去掉它；若进度回调已覆盖过文字就不动
+            // Restore the label: strip the prefix only while it is still there; if a progress
+            // update already overwrote the text, leave it alone
+            if (dlControl.btn && dlControl.btn.textContent.indexOf('已暂停 · ') === 0) {
+                dlControl.btn.textContent = dlControl.btn.textContent.slice('已暂停 · '.length);
+            }
             releasePaused(false);
             console.log('[bili-dl] 已继续');
         }
@@ -1412,8 +1530,10 @@
     }
 
     // ===================== 下载动作 =====================
-    // 提示一律走 notify()：沙箱化的页面里 alert() 会被拦，直接报错 / all messages go through notify(); alert() throws inside a sandboxed page
+    // 提示一律走 notify()：不再使用弹窗，一律显示右下角浮层（沙箱里 alert 会被静默忽略）
     // ===================== Download actions =====================
+    // All messages go through notify(): no dialogs any more -- always the bottom-right toast
+    // (a sandboxed page silently ignores alert)
     async function downloadAudio(btn) {
         btn.textContent = '解析中…'; btn.disabled = true;
         beginDownload(btn);

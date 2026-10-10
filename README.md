@@ -84,7 +84,7 @@ install.cmd        :: 注册宿主 + 按需下载 FFmpeg
 1. 打开视频页，等右下角档位列表自动填好（约 2 秒；没读到就点「↻ 读取可选档位」）
 2. （可选）在画质 / 音质下拉里选档位，不选就按「最高（自动）」
 3. （可选）在**音频格式**下拉里选 `m4a` 或 `mp3`；选 mp3 会在音频下完后自动转码
-4. 点「🎬🎵 视频+音频」，等它下载、合并、弹窗告诉你文件在哪
+4. 点「🎬🎵 视频+音频」，等它下载、合并，右下角浮层告诉你文件在哪（点一下可关）
 5. 中途可随时暂停或取消
 
 完整说明（面板图解、档位对照表、常见问题、权限说明）见 **[`INSTRUCTION.txt`](INSTRUCTION.txt)**。
@@ -234,7 +234,7 @@ See [`native-host/INSTRUCTION.txt`](native-host/INSTRUCTION.txt) for details and
 1. Open a video page and wait ~2s for the tier list (click **↻** if it does not show up)
 2. Optionally pick a quality / audio tier — the default is "best (auto)"
 3. Optionally pick an **audio format** (`m4a` or `mp3`); with mp3 the file is transcoded after downloading
-4. Click **video + audio** and wait for the merge; a dialog shows where the file went
+4. Click **video + audio** and wait for the merge; a bottom-right notice shows where the file went
 5. Pause or cancel at any time
 
 The full manual (panel diagram, tier reference table, FAQ, permissions) lives in **[`INSTRUCTION.txt`](INSTRUCTION.txt)**.

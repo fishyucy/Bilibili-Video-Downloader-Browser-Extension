@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器 · INSTRUCTION
-  版本 1.22.0   Chrome / Edge 扩展（Manifest V3）
+  版本 1.22.1   Chrome / Edge 扩展（Manifest V3）
 ================================================================
 
 
@@ -52,7 +52,7 @@
   档位列表：进页面约 2 秒后自动读取一次，不用手点。
             同一分P只会读一次，不会因为刷新页面而重置你的选择。
             没读到就点「↻ 读取可选档位」。
-            点 ↻ 时如果某档拿不到，还会弹窗告诉你原因。
+            点 ↻ 时如果某档拿不到，还会在右下角浮层告诉你原因。
 
   档位选择会被记住（存在本地），下次打开同类型的视频仍然有效；
   如果某个视频没有你选的那一档，会自动退回「最高（自动）」。
@@ -70,7 +70,7 @@
 
   4. 点「🎬🎵 视频+音频」
      → 按钮会依次显示「解析中…」「下载中 xx%」「合并中」
-     → 完成后弹窗告诉你文件在哪、多大多清晰
+     → 完成后右下角浮层告诉你文件在哪、多大多清晰（点一下可关）
 
   5. 中途想停：点「⏸ 暂停」（变成「▶ 继续」），或点「✕ 取消」
 
@@ -176,7 +176,7 @@
             所以即使没装 FFmpeg，普通视频也能拿到单个 MP4。
 
     通道 C  兜底：分别下载视频和音频两个文件，
-            并弹窗给你一条 FFmpeg 命令行让你自己合。
+            并给你一条 FFmpeg 命令行（显示在右下角浮层、不会自动消失）让你自己合。
 
   下载单条流时也有兜底：页面直连失败会自动改用后台通道，
   并且会依次尝试 B 站接口一并返回的备用 CDN 地址（有几个试几个）。
@@ -222,21 +222,25 @@
         扩展监听了地址变化）。没更新就点一下 ↻。
 
 
-  Q：下载完成了，却没看到提示弹窗？
-    A：这个页面被放进了沙箱 iframe，浏览器会禁止这种页面弹窗
-       （控制台会报 "The document is sandboxed, and the 'allow-modals' keyword is not set"）。
-       这种情况扩展会自动改成右下角浮层提示（点一下可关掉），文件本身已经下载好了。
+  Q：下载完成后，提示在哪里看？
+    A：一律看页面右下角浮层 —— 现在所有提示（下载 / 转码 / 合并完成等）都显示在那里。
+       为什么不用弹窗：页面一旦被浏览器沙箱化（已实测两种情形：顶层 CSP sandbox、
+       嵌套沙箱 iframe），alert 都会被「静默忽略」——既不显示也不报错，提示就此丢失；
+       浮层在任何环境都能渲染。
+       点一下浮层可关掉；内容较长时（例如 FFmpeg 命令）不自动消失，留给你复制。
 
 
   Q：控制台报 "Download is disallowed. The frame initiating or
      instantiating the download is sandboxed, but the flag
      'allow-downloads' is not set"？
-    A：同一个沙箱 iframe 会把「保存文件」这个动作一起拦掉 ——
-       页面里创建的 <a download> 点击会被浏览器直接拒绝。
-       现在保存改走扩展自己的下载接口（chrome.downloads），
-       不受页面沙箱约束，被拦也不会丢文件。
-       这条红字若仍出现，说明页面内的兜底路径被走过一次，
-       文件实际已由扩展落盘 —— 以「下载」里有没有文件为准。
+    A：这说明扩展保存通道没能用上，落盘退到了页面内下载，而沙箱页面把这次下载拦掉了
+       （这条红字就是那次拦截的提示）。
+       正常情况下不会出现：落盘由扩展的下载接口（chrome.downloads）完成 ——
+       扩展把页面生成的 blob: 地址交给浏览器的下载系统直接读取，
+       页面沙箱管不着，大文件也不再受扩展消息 64MiB 上限约束。
+       （blob 数据由页面持有：下载完成前别关闭/刷新该页面，完成后即可正常操作。）
+       若看到这条红字：先确认「下载」列表里到底有没有文件；
+       没有的话，把控制台里红字上方最近几行 [bili-dl] 日志发来即可定位。
 
 
   Q：下载下来的文件没有后缀，或者名字变成了「下载」？
@@ -317,7 +321,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader · INSTRUCTION
-  Version 1.22.0   Chrome / Edge extension (Manifest V3)
+  Version 1.22.1   Chrome / Edge extension (Manifest V3)
 ================================================================
 
 
@@ -369,7 +373,7 @@
   Tier list: fetched automatically about 2 seconds after the page loads; no clicking needed.
             Fetched once per part, so refreshing the page will not reset your choice.
             If nothing shows up, click "↻ refresh tiers".
-            When a tier is unavailable, clicking ↻ pops up an explanation of why.
+            When a tier is unavailable, clicking ↻ shows an explanation in the corner toast.
 
   Your choice is remembered locally and still applies the next time you open a similar video;
   if a video lacks the tier you picked, it falls back to "best (auto)".
@@ -387,7 +391,8 @@
 
   4. Click "🎬🎵 video + audio"
         -> the button shows "parsing…", "downloading xx%", then "merging"
-        -> a dialog tells you where the file is, its size and its specification
+        -> a bottom-right notice tells you where the file is, its size and its specification
+           (click it to dismiss)
 
   5. To stop midway: click "⏸ pause" (it becomes "▶ resume") or "✕ cancel"
 
@@ -497,7 +502,8 @@
                       So even without FFmpeg you still get a single MP4 for ordinary videos.
 
     Channel C  last resort: downloads video and audio as two files
-                      and pops up an FFmpeg command line for you to merge them yourself.
+                      and shows an FFmpeg command line in the corner toast for you to merge them yourself
+                      (long content stays until clicked).
 
   Single streams fall back too: if the direct page fetch fails it switches to the background channel,
   and it tries every backup CDN address the API returned alongside (as many as there are).
@@ -543,22 +549,27 @@
             the extension watches the URL). If nothing changes, click ↻.
 
 
-  Q: The download finished but no dialog appeared?
-    A: This page sits inside a sandboxed iframe, and browsers block dialogs there
-       (the console says "The document is sandboxed, and the 'allow-modals' keyword is not set").
-       The extension falls back to a toast in the bottom-right corner (click to dismiss);
-       the file itself is already downloaded.
+  Q: Where do I see the completion notice?
+    A: Always in the bottom-right toast -- every notice (download / transcode / merge done)
+       appears there now. Why no dialogs: once the browser sandboxes the page (measured for
+       both a top-level CSP sandbox and a nested sandboxed iframe), alert is silently
+       ignored -- not shown, no error -- and the notice would be lost; the toast renders in
+       every environment. Click it to dismiss; longer content (such as an ffmpeg command)
+       stays until clicked so it can be copied.
 
 
   Q: The console says "Download is disallowed. The frame initiating or
      instantiating the download is sandboxed, but the flag
      'allow-downloads' is not set"?
-    A: The same sandboxed iframe also blocks the save step itself -- an in-page
-       <a download> click is refused outright by the browser. The save now goes
-       through the extension's own download API (chrome.downloads), which the page
-       sandbox cannot reach, so a blocked page no longer loses the file. If the red
-       line still appears, the in-page fallback ran once; the file was written by the
-       extension API -- trust your Downloads list.
+    A: This means the extension save channel could not be used, so the save fell back to an
+       in-page download -- and a sandboxed page refuses that (the red line is that refusal).
+       Normally this cannot happen: saving goes through the extension's download API
+       (chrome.downloads), which the browser's download system serves directly from a blob:
+       URL minted by the page -- the page sandbox has no say, and big files are no longer
+       subject to the 64MiB extension-message cap. (The blob is held by the page: do not
+       close or refresh that page until the download finishes; afterwards it is fine.)
+       If you do see the red line, check whether a file actually appeared in Downloads;
+       if not, send the last few [bili-dl] lines above it and we can pinpoint the cause.
 
 
   Q: The downloaded file has no extension, or is named "download"?
