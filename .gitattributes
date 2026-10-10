@@ -15,3 +15,5 @@ vendor/** -text
 # Windows 批处理必须是 CRLF：LF 行尾在 cmd.exe 里遇到 goto / 多行 if 会出问题
 # Windows batch files must be CRLF: LF line endings break goto / multi-line if in cmd.exe
 *.cmd text eol=crlf
+*.cs  text eol=crlf
+*.ps1 text eol=crlf

@@ -1256,6 +1256,28 @@
         });
     }
 
+    // 宿主只接受一个地址，所以在这里逐个试备用地址。
+    // B 站的主地址偶尔连不上、备用地址却是通的 —— 页面直连那条路也是这么退避的。
+    // The host accepts a single URL, so try the backup addresses here. Bilibili's primary address
+    // is occasionally unreachable while a backup works -- the same fallback the page path uses.
+    async function nativeTranscodeAny(urls, filename, bitrate, onProgress) {
+        const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);
+        if (!list.length) throw new Error('没有可用的音频地址');
+
+        let lastErr = null;
+        for (let i = 0; i < list.length; i++) {
+            try {
+                if (i > 0) console.warn(`[bili-dl] FFmpeg 转码改用备用地址 ${i}/${list.length - 1}`);
+                return await nativeTranscodeFile(list[i], filename, bitrate, onProgress);
+            } catch (e) {
+                if (isCancelled(e)) throw e;
+                lastErr = e;
+                console.warn(`[bili-dl] FFmpeg 转码：地址 ${i + 1}/${list.length} 失败（${e && e.message}）`);
+            }
+        }
+        throw new Error('所有音频地址都转码失败：' + (lastErr ? lastErr.message : '未知原因'));
+    }
+
     // ===================== 下载控制：暂停 / 取消 =====================
     // ===================== Download control: pause / cancel =====================
     // 三条下载通道（页面直连 / 后台 Service Worker / 原生宿主）统一由这里控制：
@@ -1413,7 +1435,9 @@
                     try {
                         btn.textContent = 'FFmpeg 转码中…';
                         const mp3Name = outputName(info, 'mp3');
-                        const res = await nativeTranscodeFile(audio.url, mp3Name, MP3_BITRATE, (m) => {
+                        // 传整个地址列表，主地址连不上会自动换备用
+                        // Pass the whole list; a dead primary address falls through automatically
+                        const res = await nativeTranscodeAny(audio.urls, mp3Name, MP3_BITRATE, (m) => {
                             btn.textContent = (m.label || '转码') + ' ' + m.percent + '%';
                         });
                         const aq = qualityLabel(AUDIO_QUALITY_NAMES, audio.quality);

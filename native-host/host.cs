@@ -399,7 +399,13 @@ class BiliDlHost
             req.Headers.TryAddWithoutValidation("Origin", "https://www.bilibili.com");
             req.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
 
-            HttpResponseMessage resp = client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead).Result;
+            // 用 GetAwaiter().GetResult() 而不是 .Result：后者会把真实异常包成
+            // AggregateException，Message 只剩一句「发生一个或多个错误。」，什么线索都没有。
+            // Use GetAwaiter().GetResult() rather than .Result: the latter wraps the real exception
+            // in an AggregateException whose Message is just "One or more errors occurred.",
+            // throwing away every useful detail.
+            HttpResponseMessage resp = client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead)
+                                             .GetAwaiter().GetResult();
             if (!resp.IsSuccessStatusCode)
             {
                 throw new Exception("HTTP " + (int)resp.StatusCode + " " + resp.ReasonPhrase + "（多为防盗链拦截）");
@@ -409,7 +415,7 @@ class BiliDlHost
             if (resp.Content.Headers.ContentLength.HasValue) total = resp.Content.Headers.ContentLength.Value;
 
             long loaded = 0;
-            using (Stream src = resp.Content.ReadAsStreamAsync().Result)
+            using (Stream src = resp.Content.ReadAsStreamAsync().GetAwaiter().GetResult())
             using (FileStream fs = File.Create(dest))
             {
                 byte[] buf = new byte[262144];
@@ -537,7 +543,7 @@ class BiliDlHost
         }
         catch (Exception e)
         {
-            Log("合并失败: " + e.Message);
+            Log("合并失败: " + e.ToString());
             WriteMessage("{\"type\":\"done\",\"ok\":false,\"error\":\"" + Escape(e.Message) + "\"}");
         }
         finally
@@ -668,7 +674,9 @@ class BiliDlHost
         }
         catch (Exception e)
         {
-            Log("转码失败: " + e.Message);
+            // 记完整 ToString()（含内部异常与堆栈），一句笼统的 Message 没有排查价值
+            // Log the full ToString() (inner exceptions and stack included); a bare Message tells nothing
+            Log("转码失败: " + e.ToString());
             WriteMessage("{\"type\":\"done\",\"ok\":false,\"error\":\"" + Escape(e.Message) + "\"}");
         }
         finally
