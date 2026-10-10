@@ -1,0 +1,9 @@
+BiliDL host 自检 / self check
+
+AppDir                : D:\Desktop\浏览器插件\bili-downloader\native-host
+期望的 ffmpeg 路径    : D:\Desktop\浏览器插件\bili-downloader\native-host\bin\ffmpeg.exe
+该文件存在            : True
+BILIDL_FFMPEG 环境变量: (未设置)
+FindFfmpeg() 的结果   : D:\Desktop\浏览器插件\bili-downloader\native-host\bin\ffmpeg.exe
+
+时间 / at             : 2026-10-10 20:11:01

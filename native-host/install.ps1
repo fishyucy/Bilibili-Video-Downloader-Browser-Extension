@@ -90,8 +90,35 @@ foreach ($sub in $regSubKeys) {
     }
 }
 
-# 3) 检查 ffmpeg
-# 3) Look for ffmpeg
+# 3) 用 reg query 读回一遍 —— 这是最权威的验证：
+#    「Specified native messaging host not found」几乎总是注册表没写进去，
+#    所以与其猜，不如把注册表里真实的内容打出来。
+# 3) Read it back with reg query -- the most authoritative check: "Specified native
+#    messaging host not found" almost always means the registry write did not land, so print
+#    what is really in the registry instead of guessing.
+Write-Host ''
+Write-Host '---- 注册表读回验证 / registry read-back ----' -ForegroundColor Cyan
+foreach ($sub in $regSubKeys) {
+    $full = 'HKCU\' + $sub
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'   # 查询失败不该中断脚本 / a failed query must not abort the script
+    $out = & reg query $full /ve 2>&1
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $saved
+    if ($code -eq 0) {
+        Write-Host ('  [OK] ' + $full) -ForegroundColor Green
+        foreach ($l in $out) {
+            $t = ('' + $l).Trim()
+            if ($t.Length -gt 0) { Write-Host ('       ' + $t) }
+        }
+    } else {
+        Write-Host ('  [缺失] ' + $full + ' —— 读不到这个键') -ForegroundColor Red
+    }
+}
+Write-Host ''
+
+# 4) 检查 ffmpeg
+# 4) Look for ffmpeg
 function Find-Ffmpeg {
     $candidates = New-Object System.Collections.ArrayList
     if ($env:BILIDL_FFMPEG) { [void]$candidates.Add($env:BILIDL_FFMPEG) }
