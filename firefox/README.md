@@ -114,6 +114,16 @@ install.cmd        :: 注册宿主（Mozilla 键）+ 找 FFmpeg
 Firefox 版注册的是 **Mozilla 键**（`HKCU\Software\Mozilla\NativeMessagingHosts`），
 与 Chrome 版的注册互不影响 —— 两个版本可以并存，各注册各的。
 
+**它是怎么工作的（几点补充）**：
+
+| 点 | 说明 |
+|---|---|
+| **判断方式** | 不是扩展自己读注册表 —— 扩展只是调用 `connectNative` 向浏览器「要」宿主；真正读注册表、启动宿主的是**浏览器**，扩展以「能不能 ping 通」来判断宿主是否可用 |
+| **注册一次即可** | 注册后长期有效；但注册表和清单里写的是**绝对路径**，宿主文件夹一旦移动 / 改名就断了链：移回去，或在新位置重跑一次 `install.cmd` |
+| **装好后马上能用** | 探测只缓存成功结果、失败不缓存 —— 装好宿主后**不用刷新页面**，下一次点下载就会重新探测并直接用上 |
+| **两版互不干扰** | Firefox 读 Mozilla 键，Chrome / Edge 读各自厂商键；每份清单只允许自己版本的那个扩展 ID，并存毫无冲突 |
+| **为什么必须单独装** | 浏览器不允许扩展自己运行 exe / 读写磁盘 —— Native Messaging 是唯一的「扩展 → 本地程序」通道，这就是宿主存在的全部原因 |
+
 详细步骤与排错见宿主包内的 `native-host/INSTRUCTION.txt`。
 
 ## 使用
@@ -305,6 +315,16 @@ To confirm it works: the merge button shows "**FFmpeg merging…**" when the nat
 The Firefox edition registers the **Mozilla key** (`HKCU\Software\Mozilla\NativeMessagingHosts`),
 which never collides with the Chrome edition's keys -- the two editions coexist, each registering
 its own host.
+
+**How it works (a few clarifications)**:
+
+| Point | Explanation |
+|---|---|
+| **How it is detected** | The extension does not read the registry itself -- it calls `connectNative` to ask the browser for the host; the **browser** reads the registry and starts the host, and the extension treats "ping works" as "host available" |
+| **Register once** | The registration lasts; but the registry and the manifest store **absolute paths**, so moving or renaming the host folder breaks the chain: move it back, or re-run `install.cmd` from the new location |
+| **Works right after install** | The probe caches successes only, never failures -- after installing the host **no page reload is needed**; the next download click re-probes and uses it right away |
+| **No collisions between editions** | Firefox reads the Mozilla key; Chrome / Edge read their own vendor keys, and each manifest whitelists only its own edition's extension ID |
+| **Why a separate install** | Browsers do not let extensions run .exe files or write to disk -- Native Messaging is the only "extension -> local program" channel, which is the whole reason the host exists |
 
 See the `native-host/INSTRUCTION.txt` inside the host package for details and troubleshooting.
 
