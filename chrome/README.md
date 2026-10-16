@@ -30,6 +30,7 @@
 
 - **档位菜单**：按「档位 + 编码」分开列出，兼容性优先选 H.264，省流量选 HEVC / AV1
 - **三种下载**：仅音频（`.m4a` / `.mp3`）、仅视频（`.mp4`）、视频+音频（自动合并成单个 MP4）
+- **合并方式可选**：视频+音频可在面板上选「自动（FFmpeg 优先，失败自动回退）/ 仅 FFmpeg / 仅浏览器内封装」
 - **音频格式可选**：仅音频支持 `m4a`（原声直存，最快）或 `mp3`（192kbps 转码）。
   **本机装了 FFmpeg 就自动交给它**（快得多、不占页面内存）；没装则在浏览器里用内置编码器转，
   **不需要安装任何东西、也不联网**
@@ -116,6 +117,12 @@ install.cmd        :: 注册宿主（Chromium 各厂商键）+ 找 FFmpeg
 | B. 浏览器内重封装 | 纯 JS 搬运 MP4 盒子，毫秒级，无转码，不装任何东西 |
 | C. 兜底 | 分别下载视频与音频，并给出 FFmpeg 命令让你自己合 |
 
+面板上的「**合并方式**」下拉可以手动指定走哪种（默认「自动」）：
+
+- `自动（FFmpeg 优先）` —— 按上表顺序自动回退（前一个失败才换下一个）
+- `仅 FFmpeg` —— 只用通道 A；没装宿主会直接提示，不会偷偷换通道
+- `仅浏览器内封装` —— 只用通道 B，完全不碰宿主
+
 ## 目录结构
 
 ```
@@ -194,6 +201,7 @@ Unlike "sniff the highest quality" tools it does not guess: whatever the API han
 
 - **Tier menu** — one entry per "tier + codec"; pick H.264 for compatibility or HEVC / AV1 to save bandwidth
 - **Three download modes** — audio only (`.m4a` / `.mp3`), video only (`.mp4`), or video + audio merged into a single MP4
+- **Selectable merge method** — pick auto (prefer FFmpeg, fall back) / FFmpeg only / in-browser remux only from the panel
 - **Selectable audio format** — audio-only downloads can be `m4a` (saved as-is, fastest) or `mp3`
   (192kbps). **A local FFmpeg is used automatically when present** (much faster, no page memory);
   otherwise it transcodes in the browser with a built-in encoder: **nothing to install, no network**
@@ -281,6 +289,12 @@ Merged downloads try these in order:
 | A. Native host + FFmpeg | Requires `native-host`. Produces a faststart MP4 |
 | B. In-browser remux | Pure JS box-shuffling, milliseconds, no re-encode, nothing to install |
 | C. Last resort | Downloads video and audio separately, then hands you an FFmpeg command |
+
+The panel's **merge method** dropdown can override this (default `auto`):
+
+- `auto (prefer FFmpeg)` -- falls back in the order above
+- `FFmpeg only` -- channel A alone; a missing host is reported instead of silently switching
+- `in-browser remux only` -- channel B alone, never touches the host
 
 ## Layout
 

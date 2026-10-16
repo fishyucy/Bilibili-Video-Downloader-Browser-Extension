@@ -1062,28 +1062,36 @@
     function loadPrefs() {
         try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch (e) { return {}; }
     }
-    function savePrefs(vq, aq) {
-        // 音频格式另存一份，别被「画质 / 音质」的选择冲掉
-        // The audio format is kept alongside so a quality change cannot wipe it
+    // 统一用一个补丁函数合并保存：vq/aq（画质音质）、af（音频格式）、mm（合并方式）互不冲掉
+    // One patching helper keeps vq/aq (tiers), af (audio format) and mm (merge method) from wiping each other
+    function updatePrefs(patch) {
         const prev = loadPrefs();
         try {
-            localStorage.setItem(PREFS_KEY, JSON.stringify({ vq: vq, aq: aq, af: prev.af || 'm4a' }));
+            localStorage.setItem(PREFS_KEY, JSON.stringify(Object.assign({}, prev, patch)));
         } catch (e) { /* ignore */ }
     }
+    function savePrefs(vq, aq) { updatePrefs({ vq: vq, aq: aq }); }
 
     // 音频格式：m4a（原声直存）/ mp3（转码）
     // Audio format: m4a (saved as-is) or mp3 (transcoded)
-    function saveAudioFormat(af) {
-        const prev = loadPrefs();
-        try {
-            localStorage.setItem(PREFS_KEY, JSON.stringify({ vq: prev.vq, aq: prev.aq, af: af }));
-        } catch (e) { /* ignore */ }
-    }
+    function saveAudioFormat(af) { updatePrefs({ af: af }); }
+
+    // 合并方式：auto（FFmpeg 优先、失败自动回退）/ ffmpeg（仅宿主）/ mux（仅浏览器内重封装）
+    // Merge method: auto (prefer FFmpeg, fall back) / ffmpeg (host only) / mux (in-browser remux only)
+    function saveMergeMethod(mm) { updatePrefs({ mm: mm }); }
 
     function currentAudioFormat() {
         const el = document.getElementById('bili-dl-afmt');
         if (el && (el.value === 'mp3' || el.value === 'm4a')) return el.value;
         return loadPrefs().af === 'mp3' ? 'mp3' : 'm4a';
+    }
+
+    // 合并方式（面板「合并方式」下拉）：默认 auto（FFmpeg 优先，失败自动回退浏览器内）
+    // Merge method (the panel dropdown): default auto (prefer FFmpeg, fall back to in-browser)
+    function currentMergeMethod() {
+        const el = document.getElementById('bili-dl-mm');
+        if (el && (el.value === 'ffmpeg' || el.value === 'mux')) return el.value;
+        return 'auto';
     }
 
     function selectEl(kind) {
@@ -1647,76 +1655,101 @@
             const audio = getBestAudioStream(dash);
             if (!video) throw new Error('该视频没有视频流');
 
+            // 合并方式由面板的「合并方式」下拉决定：auto / ffmpeg / mux
+            // The merge method comes from the panel dropdown: auto / ffmpeg / mux
+            const method = currentMergeMethod();
+            console.log('[bili-dl] 合并方式：' + (method === 'auto' ? '自动（FFmpeg 优先）' : (method === 'ffmpeg' ? '仅 FFmpeg' : '仅浏览器内封装')));
+
             if (audio) {
-                // ---------- 通道 A：原生宿主 + FFmpeg（装了 native-host 才有，质量最好）----------
-                // ---------- Channel A: native host + FFmpeg (only with native-host installed; best quality) ----------
-                const probe = await nativeAvailable();
-                if (probe && probe.ok) {
-                    try {
-                        btn.textContent = 'FFmpeg 合并中…';
-                        const mergedName = outputName(info, 'mp4');
-                        const res = await nativeMergeFile(video.url, audio.url, mergedName, (m) => {
-                            if (m.phase === 'merge') btn.textContent = 'FFmpeg 封装中…';
-                            else btn.textContent = `${m.label || '下载'} ${m.percent}%`;
-                        });
-                        const mb = res.size ? (res.size / 1048576).toFixed(1) + ' MB' : '';
-                        console.log(`✅ FFmpeg 已合并 P${info.p}/${info.total}: ${res.output}`);
-                        notify(`✅ 已自动合并完成（原生 FFmpeg）！\n当前分P: P${info.p}/${info.total}\n大小: ${mb}\n规格: ${qualitySummary(video, audio)}\n\n文件：${res.output}`);
-                        return;
-                    } catch (e) {
-                        if (isCancelled(e)) throw e;
-                        console.warn('[bili-dl] 原生合并失败，改用浏览器内合并：', e);
+                // ---------- 通道 A：原生宿主 + FFmpeg（装了 native-host 才有）----------
+                // ---------- Channel A: native host + FFmpeg (only with native-host installed) ----------
+                if (method !== 'mux') {
+                    const probe = await nativeAvailable();
+                    if (probe && probe.ok) {
+                        try {
+                            btn.textContent = 'FFmpeg 合并中…';
+                            const mergedName = outputName(info, 'mp4');
+                            const res = await nativeMergeFile(video.url, audio.url, mergedName, (m) => {
+                                if (m.phase === 'merge') btn.textContent = 'FFmpeg 封装中…';
+                                else btn.textContent = `${m.label || '下载'} ${m.percent}%`;
+                            });
+                            const mb = res.size ? (res.size / 1048576).toFixed(1) + ' MB' : '';
+                            console.log(`✅ FFmpeg 已合并 P${info.p}/${info.total}: ${res.output}`);
+                            notify(`✅ 已自动合并完成（原生 FFmpeg）！\n当前分P: P${info.p}/${info.total}\n大小: ${mb}\n规格: ${qualitySummary(video, audio)}\n\n文件：${res.output}`);
+                            return;
+                        } catch (e) {
+                            if (isCancelled(e)) throw e;
+                            if (method === 'ffmpeg') {
+                                // 选了「仅 FFmpeg」就不悄悄换通道，把真实原因抛给用户
+                                // With "FFmpeg only" selected we do not silently switch channels
+                                throw new Error('FFmpeg 合并失败（已选「仅 FFmpeg」，不自动回退）：' + (e && e.message ? e.message : e));
+                            }
+                            console.warn('[bili-dl] 原生合并失败，改用浏览器内合并：', e);
+                        }
+                    } else {
+                        if (method === 'ffmpeg') {
+                            throw new Error('未检测到原生 FFmpeg 宿主（native-host 未安装或未注册）。\n把「合并方式」改回「自动」或「仅浏览器内封装」，或先安装 native-host。' +
+                                (probe && probe.error ? '\n（' + probe.error + '）' : ''));
+                        }
+                        console.log('[bili-dl] 未检测到原生宿主，使用浏览器内重封装：' + (probe && probe.error ? probe.error : ''));
                     }
-                } else {
-                    console.log('[bili-dl] 未检测到原生宿主，使用浏览器内重封装：' + (probe && probe.error ? probe.error : ''));
                 }
 
                 // ---------- 通道 B：浏览器内纯 JS 重封装（不装任何东西，无转码）----------
                 // ---------- Channel B: pure-JS remux inside the browser (nothing to install, no re-encode) ----------
-                if (window.BiliMux) {
-                    try {
-                        btn.textContent = '下载视频…';
-                        const vBlob = await fetchStreamBlob(video.urls, outputName(info, 'mp4'), (n, pct) => {
-                            btn.textContent = `视频 ${pct}%`;
-                        });
-                        btn.textContent = '下载音频…';
-                        const aBlob = await fetchStreamBlob(audio.urls, outputName(info, 'm4a'), (n, pct) => {
-                            btn.textContent = `音频 ${pct}%`;
-                        });
+                if (method !== 'ffmpeg') {
+                    if (!window.BiliMux) {
+                        if (method === 'mux') throw new Error('浏览器内重封装组件未加载（muxer.js），请重新加载扩展后重试');
+                    } else {
+                        try {
+                            btn.textContent = '下载视频…';
+                            const vBlob = await fetchStreamBlob(video.urls, outputName(info, 'mp4'), (n, pct) => {
+                                btn.textContent = `视频 ${pct}%`;
+                            });
+                            btn.textContent = '下载音频…';
+                            const aBlob = await fetchStreamBlob(audio.urls, outputName(info, 'm4a'), (n, pct) => {
+                                btn.textContent = `音频 ${pct}%`;
+                            });
 
-                        btn.textContent = '合并中…';
-                        const merged = await window.BiliMux.merge(vBlob, aBlob, (phase, pct) => {
-                            btn.textContent = `${phase} ${pct}%`;
-                        });
+                            btn.textContent = '合并中…';
+                            const merged = await window.BiliMux.merge(vBlob, aBlob, (phase, pct) => {
+                                btn.textContent = `${phase} ${pct}%`;
+                            });
 
-                        const filename = outputName(info, 'mp4');
-                        await saveBlob(merged, filename);
-                        console.log(`✅ 浏览器内重封装完成 P${info.p}/${info.total}: ${filename}（${merged.size} 字节）`);
-                        notify(`✅ 已自动合并完成（浏览器内重封装，无转码）！\n当前分P: P${info.p}/${info.total}\n大小: ${(merged.size / 1048576).toFixed(1)} MB\n规格: ${qualitySummary(video, audio)}\n\n文件：${filename}`);
-                        return;
-                    } catch (e) {
-                        if (isCancelled(e)) throw e;
-                        console.warn('[bili-dl] 浏览器内合并失败，回退到分离下载：', e);
+                            const filename = outputName(info, 'mp4');
+                            await saveBlob(merged, filename);
+                            console.log(`✅ 浏览器内重封装完成 P${info.p}/${info.total}: ${filename}（${merged.size} 字节）`);
+                            notify(`✅ 已自动合并完成（浏览器内重封装，无转码）！\n当前分P: P${info.p}/${info.total}\n大小: ${(merged.size / 1048576).toFixed(1)} MB\n规格: ${qualitySummary(video, audio)}\n\n文件：${filename}`);
+                            return;
+                        } catch (e) {
+                            if (isCancelled(e)) throw e;
+                            if (method === 'mux') {
+                                throw new Error('浏览器内重封装失败（已选「仅浏览器内封装」，不自动回退）：' + (e && e.message ? e.message : e));
+                            }
+                            console.warn('[bili-dl] 浏览器内合并失败，回退到分离下载：', e);
+                        }
                     }
                 }
             }
 
-            // ---------- 通道 C：兜底 —— 分开下载，人工合并 ----------
-            // ---------- Channel C: last resort -- download separately, merge by hand ----------
-            btn.textContent = '下载视频…';
-            const videoFile = outputName(info, 'mp4');
-            await downloadFile(video.urls, videoFile, (name, pct) => { btn.textContent = `视频 ${pct}%`; });
+            // ---------- 通道 C：兜底 —— 分开下载，人工合并（仅「自动」模式；视频没有音轨时也走这里）----------
+            // ---------- Channel C: last resort -- download separately, merge by hand (auto mode only; also used when there is no audio track) ----------
+            if (method === 'auto' || !audio) {
+                btn.textContent = '下载视频…';
+                const videoFile = outputName(info, 'mp4');
+                await downloadFile(video.urls, videoFile, (name, pct) => { btn.textContent = `视频 ${pct}%`; });
 
-            let audioFile = '';
-            if (audio) {
-                btn.textContent = '下载音频…';
-                audioFile = outputName(info, 'm4a');
-                await downloadFile(audio.urls, audioFile, (name, pct) => { btn.textContent = `音频 ${pct}%`; });
+                let audioFile = '';
+                if (audio) {
+                    btn.textContent = '下载音频…';
+                    audioFile = outputName(info, 'm4a');
+                    await downloadFile(audio.urls, audioFile, (name, pct) => { btn.textContent = `音频 ${pct}%`; });
+                }
+
+                const outputFile = outputName(info, 'mp4', ' 完整版');
+                console.log(`✅ 已下载 P${info.p}/${info.total}`);
+                notify(`✅ 下载完成！\n当前分P: P${info.p}/${info.total}\n\n请用 FFmpeg 合并：\nffmpeg -i "${videoFile}" ${audio ? `-i "${audioFile}" -c:v copy -c:a copy` : '-c:v copy'} "${outputFile}"\n\n──────\n自动合并这次没成功（原因见控制台 [bili-dl] 开头的中文日志）。\n装了 native-host 的话会自动改用原生 FFmpeg 合并。`);
             }
-
-            const outputFile = outputName(info, 'mp4', ' 完整版');
-            console.log(`✅ 已下载 P${info.p}/${info.total}`);
-            notify(`✅ 下载完成！\n当前分P: P${info.p}/${info.total}\n\n请用 FFmpeg 合并：\nffmpeg -i "${videoFile}" ${audio ? `-i "${audioFile}" -c:v copy -c:a copy` : '-c:v copy'} "${outputFile}"\n\n──────\n自动合并这次没成功（原因见控制台 [bili-dl] 开头的中文日志）。\n装了 native-host 的话会自动改用原生 FFmpeg 合并。`);
         } catch (err) {
             if (isCancelled(err)) { console.log('[bili-dl] 合并下载已取消'); return; }
             console.error(err);
@@ -1826,6 +1859,33 @@
         };
         menu.appendChild(afmtLabel);
         menu.appendChild(afmtSel);
+
+        // ---- 合并方式（自动 / 仅 FFmpeg / 仅浏览器内封装）----
+        // ---- Merge method (auto / FFmpeg only / in-browser remux only) ----
+        const mmLabel = document.createElement('div');
+        mmLabel.textContent = '合并方式';
+        Object.assign(mmLabel.style, {
+            fontSize: '9px', color: 'rgba(255,255,255,.6)', fontWeight: '600', letterSpacing: '.3px'
+        });
+
+        const mmSel = document.createElement('select');
+        mmSel.id = 'bili-dl-mm';
+        Object.assign(mmSel.style, selectStyle);
+        [['auto', '自动（FFmpeg 优先）'], ['ffmpeg', '仅 FFmpeg（需宿主）'], ['mux', '仅浏览器内封装']].forEach(([v, t]) => {
+            const o = document.createElement('option');
+            o.value = v;
+            o.textContent = t;
+            styleOption(o);
+            mmSel.appendChild(o);
+        });
+        mmSel.value = (loadPrefs().mm === 'ffmpeg' || loadPrefs().mm === 'mux') ? loadPrefs().mm : 'auto';
+        mmSel.onchange = () => {
+            saveMergeMethod(mmSel.value);
+            const shown = mmSel.options[mmSel.selectedIndex];
+            console.log('[bili-dl] 合并方式已选：' + (shown ? shown.textContent : mmSel.value));
+        };
+        menu.appendChild(mmLabel);
+        menu.appendChild(mmSel);
 
         const refreshBtn = document.createElement('button');
         refreshBtn.id = 'bili-dl-refresh';

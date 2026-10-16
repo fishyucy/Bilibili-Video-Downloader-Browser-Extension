@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器 · INSTRUCTION
-  版本 1.22.4   Chrome / Edge 扩展（Manifest V3）
+  版本 1.23.0   Chrome / Edge 扩展（Manifest V3）
 ================================================================
 
 
@@ -39,6 +39,7 @@
   │ 画质  [1080P · H.264 · 1.9M]   │  ← 下拉选择视频档位
   │ 音质  [192K · AAC · 192kbps]   │  ← 下拉选择音频档位
   │ 格式  [m4a / mp3]              │  ← 音频格式，只影响「🎵 音频」
+  │ 合并  [自动/FFmpeg/浏览器内]   │  ← 合并方式，默认「自动」
   │ [↻ 读取可选档位]                │  ← 手动刷新档位列表
   ├──────────────────────────┤
   │ [🎵 音频]                       │  ← 只下音轨（.m4a）
@@ -162,7 +163,7 @@
   中文、空格、【】（）等全角符号都会保留，不影响可读性。
 
 
-【七、三条下载通道（自动切换，不用你操心）】
+【七、三条下载通道（默认自动切换，也可手动指定）】
 
   合并下载会按下面顺序自动尝试，前一个失败才换下一个：
 
@@ -177,6 +178,12 @@
 
     通道 C  兜底：分别下载视频和音频两个文件，
             并给你一条 FFmpeg 命令行（显示在右下角浮层、不会自动消失）让你自己合。
+
+  面板上的「合并方式」下拉可以手动指定（默认「自动」，选择会被记住）：
+
+    「自动（FFmpeg 优先）」  按上面的顺序自动回退 —— 前一个失败才换下一个
+    「仅 FFmpeg」           只用通道 A；没装宿主会直接报错提示，不会偷偷换通道
+    「仅浏览器内封装」       只用通道 B，完全不碰宿主（不想用 FFmpeg 时选它）
 
   下载单条流时也有兜底：页面直连失败会自动改用后台通道，
   并且会依次尝试 B 站接口一并返回的备用 CDN 地址（有几个试几个）。
@@ -321,7 +328,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader · INSTRUCTION
-  Version 1.22.4   Chrome / Edge extension (Manifest V3)
+  Version 1.23.0   Chrome / Edge extension (Manifest V3)
 ================================================================
 
 
@@ -360,6 +367,7 @@
   │ Quality [1080P · H.264 · 1.9M]  │  <- pick the video tier
   │ Audio   [192K · AAC · 192kbps]  │  <- pick the audio tier
   │ Format  [m4a / mp3]            │  <- audio format; affects "audio" only
+  │ Merge   [auto / FFmpeg / mux]  │  <- how video+audio merge (default: auto)
   │ [↻ refresh tiers]              │  <- refresh the tier list manually
   ├──────────────────────────┤
   │ [🎵 audio]                     │  <- audio only (.m4a)
@@ -488,7 +496,7 @@
   while CJK, spaces and full-width punctuation such as 【】（） are kept, so titles stay readable.
 
 
-【7. Three download channels (switched automatically)】
+【7. Three download channels (automatic by default, manually selectable)】
 
   Merged downloads try these in order, moving on only when one fails:
 
@@ -504,6 +512,12 @@
     Channel C  last resort: downloads video and audio as two files
                       and shows an FFmpeg command line in the corner toast for you to merge them yourself
                       (long content stays until clicked).
+
+  The panel's "merge method" dropdown overrides this (default "auto"; your choice is remembered):
+
+    "auto (prefer FFmpeg)"    falls back in the order above -- the next channel runs only when one fails
+    "FFmpeg only"             channel A alone; a missing host is reported instead of silently switching
+    "in-browser remux only"   channel B alone, never touches the host
 
   Single streams fall back too: if the direct page fetch fails it switches to the background channel,
   and it tries every backup CDN address the API returned alongside (as many as there are).
