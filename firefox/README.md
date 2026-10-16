@@ -4,7 +4,7 @@
 >
 > A Firefox extension (Manifest V3). Adds a download panel to Bilibili video pages: pick any quality and audio tier, and get a single merged MP4.
 >
-> **这是 Firefox 版；与 [Chrome 版](https://github.com/fishyucy/Bilibili-Video-Downloader-Browser-Extension) 是「兄弟项目」——同一套功能、各自适配、共同维护，不互为新旧版本。**
+> **本目录是仓库里的火狐版（兄弟项目之一）；与 [Chrome / Edge 版](../chrome/) 功能对齐、各自适配、共同维护、共用同一个版本号，不互为新旧版本。**
 >
 > **中文在前，English below.** · [跳到 English](#english)
 >
@@ -18,8 +18,8 @@
 
 在 B 站视频页右下角注入一个下载面板：把这个视频**真实可用的画质与音质档位**列出来，由你自己挑，然后下载、自动合并成单个 MP4。
 
-（本仓库是 **Firefox 版**：功能与 [Chrome 版](https://github.com/fishyucy/Bilibili-Video-Downloader-Browser-Extension) 完全对齐，
-代码同源、平台差异单独适配；两版独立演进、共同维护。）
+（本目录是仓库里的**火狐版**：功能与 [Chrome / Edge 版](../chrome/) 完全对齐，
+代码同源、平台差异单独适配；两版独立演进、共同维护、**共用同一个版本号**。）
 
 和"嗅探最高清晰度"的做法不同，它不猜——**接口返回了什么就列什么**，包括同一档位下的各种编码：
 
@@ -44,8 +44,8 @@
 ## 安装
 
 这是 **Firefox 版**（Manifest V3，要求 **Firefox 140 及以上**，即 2025 年后的版本；
-当前 ESR / 正式版均满足）。Chrome / Edge 用户请用兄弟项目
-[Chrome 版](https://github.com/fishyucy/Bilibili-Video-Downloader-Browser-Extension)。
+当前 ESR / 正式版均满足）。Chrome / Edge 用户请用本仓库的
+[Chrome / Edge 版](../chrome/)。
 
 从本仓库的 **Releases** 下载 `Bilibili-Video-Downloader-Firefox-vX.Y.Z.xpi`
 （发布版已通过 addons.mozilla.org 的 **unlisted / 自主分发签名**），两种装法任选：
@@ -185,10 +185,9 @@ WBI 签名方案与画质 / 音质档位编号的对照关系，参考了社区�
 
 # English
 
-> **This is the Firefox edition.** Its sibling is the
-> [Chrome edition](https://github.com/fishyucy/Bilibili-Video-Downloader-Browser-Extension):
-> same feature set, code shared, adapted per browser and maintained side by side --
-> neither is an old/new generation of the other.
+> **This folder is the Firefox edition of this repository.** Its sibling is the
+> [Chrome / Edge edition](../chrome/): same feature set, adapted per browser, maintained side by
+> side under one shared version number -- neither is an old/new generation of the other.
 
 ## What it is
 
@@ -217,8 +216,8 @@ Unlike "sniff the highest quality" tools it does not guess: whatever the API han
 ## Install
 
 This is the **Firefox edition** (Manifest V3, requires **Firefox 140 or newer** -- i.e. any
-2025-or-later build; current ESR and release both qualify). Chrome / Edge users want the
-sibling [Chrome edition](https://github.com/fishyucy/Bilibili-Video-Downloader-Browser-Extension).
+2025-or-later build; current ESR and release both qualify). Chrome / Edge users want this
+repository's sibling [Chrome / Edge edition](../chrome/).
 
 Grab `Bilibili-Video-Downloader-Firefox-vX.Y.Z.xpi` from this repository's **Releases**
 (the release build carries a Mozilla **unlisted / self-distribution signature**), then pick either way:

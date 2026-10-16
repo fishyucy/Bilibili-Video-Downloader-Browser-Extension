@@ -4,6 +4,9 @@
 >
 > A Chrome / Edge extension (Manifest V3). Adds a download panel to Bilibili video pages: pick any quality and audio tier, and get a single merged MP4.
 >
+> **本仓库包含两个版本**：这里是 Chrome / Edge 版（`chrome/` 目录）；火狐版见 [firefox/](../firefox/)，两版共用同一个版本号、同步发布。
+> **This repository hosts two editions**: this is the Chrome / Edge edition (`chrome/`); the Firefox edition lives in [firefox/](../firefox/). Both share one version number and ship together.
+>
 > **中文在前，English below.** · [跳到 English](#english)
 >
 > 作者 / Author: **fish**
@@ -52,7 +55,7 @@
 | **Vivaldi** | `vivaldi://extensions` | 同 Chrome |
 | **Opera** | `opera://extensions` | 需先开启「开发者模式」 |
 | **360 / QQ / 搜狗 等国产浏览器** | 通常也是 `chrome://extensions` | 部分版本要先在设置里打开「开发者选项」；需切到「极速模式」 |
-| **Firefox** | — | **不支持**：本扩展用的是 Chrome 的 MV3 写法（service worker 后台 + declarativeNetRequest），Firefox 的 manifest 结构不同，无法直接加载 |
+| **Firefox** | — | 见本仓库的 [firefox/](../firefox/) 目录：火狐版是另一个独立版本（兄弟项目），带 Mozilla 签名的 xpi 可直接安装 |
 
 **通用四步**（Chrome 为例）：
 
@@ -202,7 +205,7 @@ This is a Chromium extension (Manifest V3), so every Chromium-based browser inst
 | **Vivaldi** | `vivaldi://extensions` | Same as Chrome |
 | **Opera** | `opera://extensions` | Enable **Developer mode** first |
 | **360 / QQ / Sogou (Chinese Chromium builds)** | usually `chrome://extensions` | Some versions need "Developer options" enabled in settings; must be in "Speed/Blink mode" |
-| **Firefox** | — | **Not supported**: this extension uses Chrome's MV3 model (service-worker background + declarativeNetRequest); Firefox's manifest differs, so it cannot be loaded as-is |
+| **Firefox** | — | See the [firefox/](../firefox/) folder in this repository: the Firefox edition is its own sibling project, shipped as a Mozilla-signed `.xpi` |
 
 **Four steps** (Chrome shown):
 

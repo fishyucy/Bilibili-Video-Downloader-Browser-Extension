@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器（火狐版）· INSTRUCTION
-  版本 1.22.2   Firefox 扩展（Manifest V3）
+  版本 1.22.3   Firefox 扩展（Manifest V3）
 ================================================================
 
 
@@ -354,7 +354,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader (Firefox edition) · INSTRUCTION
-  Version 1.22.2   Firefox extension (Manifest V3)
+  Version 1.22.3   Firefox extension (Manifest V3)
 ================================================================
 
 
