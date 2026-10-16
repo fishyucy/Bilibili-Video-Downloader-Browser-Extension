@@ -1071,8 +1071,8 @@
     // Audio format: m4a (saved as-is) or mp3 (transcoded)
     function saveAudioFormat(af) { updatePrefs({ af: af }); }
 
-    // 合并方式：auto（FFmpeg 优先、失败自动回退）/ ffmpeg（仅宿主）/ mux（仅浏览器内重封装）
-    // Merge method: auto (prefer FFmpeg, fall back) / ffmpeg (host only) / mux (in-browser remux only)
+    // 合并方式：auto（FFmpeg 优先、失败自动回退）/ ffmpeg（仅宿主）/ mux（仅浏览器内，不碰 FFmpeg）
+    // Merge method: auto (prefer FFmpeg, fall back) / ffmpeg (host only) / mux (in-browser only)
     function saveMergeMethod(mm) { updatePrefs({ mm: mm }); }
 
     function currentAudioFormat() {
@@ -1552,12 +1552,22 @@
             if (!audio) throw new Error('该视频没有独立的音频流');
 
             const wantMp3 = currentAudioFormat() === 'mp3';
+            // 「合并方式」同样约束 mp3 转码：仅浏览器内 = 只用内置编码器；仅 FFmpeg = 只用宿主
+            // The merge-method setting also governs the mp3 transcode: "in-browser only" uses the
+            // built-in encoder; "FFmpeg only" insists on the host.
+            const method = currentMergeMethod();
+            if (wantMp3 && method === 'mux') {
+                // 选了「仅浏览器内」：mp3 一律用内置编码器，不探测也不调用 FFmpeg
+                // "In-browser only": mp3 always uses the built-in encoder; FFmpeg is never touched
+                console.log('[bili-dl] 合并方式为「仅浏览器内」，mp3 转码使用内置编码器（不碰 FFmpeg）');
+            }
 
-            // mp3 且本机有 ffmpeg 时，直接交给宿主下载 + 转码：
+            // mp3、本机有 ffmpeg、且没有选「仅浏览器内」时，直接交给宿主下载 + 转码：
             // 既不用把整个音频读进页面内存，也比内置 JS 编码器快得多。
-            // With mp3 and a local ffmpeg, hand it to the host to download and transcode: the page
-            // never buffers the audio and it is far faster than the built-in JS encoder.
-            if (wantMp3) {
+            // With mp3, a local ffmpeg and method != "in-browser only", hand it to the host to
+            // download and transcode: the page never buffers the audio and it is far faster than
+            // the built-in JS encoder.
+            if (wantMp3 && method !== 'mux') {
                 const probe = await nativeAvailable();
                 if (probe && probe.ok) {
                     try {
@@ -1574,9 +1584,18 @@
                         return;
                     } catch (e) {
                         if (isCancelled(e)) throw e;
+                        if (method === 'ffmpeg') {
+                            // 选了「仅 FFmpeg」就不悄悄换编码器，把真实原因抛给用户
+                            // With "FFmpeg only" selected we do not silently switch encoders
+                            throw new Error('FFmpeg 转码失败（已选「仅 FFmpeg」，不自动回退）：' + (e && e.message ? e.message : e));
+                        }
                         console.warn('[bili-dl] 本地 FFmpeg 转码失败，改用内置编码器：' + (e && e.message));
                     }
                 } else {
+                    if (method === 'ffmpeg') {
+                        throw new Error('未检测到原生 FFmpeg 宿主（native-host 未安装或未注册）。\n把「合并方式」改为「自动」或「仅浏览器内」，或先安装 native-host。' +
+                            (probe && probe.error ? '\n（' + probe.error + '）' : ''));
+                    }
                     console.log('[bili-dl] 未检测到本地 FFmpeg，使用内置编码器转码' +
                         (probe && probe.error ? '（' + probe.error + '）' : ''));
                 }
@@ -1653,7 +1672,7 @@
             // 合并方式由面板的「合并方式」下拉决定：auto / ffmpeg / mux
             // The merge method comes from the panel dropdown: auto / ffmpeg / mux
             const method = currentMergeMethod();
-            console.log('[bili-dl] 合并方式：' + (method === 'auto' ? '自动（FFmpeg 优先）' : (method === 'ffmpeg' ? '仅 FFmpeg' : '仅浏览器内封装')));
+            console.log('[bili-dl] 合并方式：' + (method === 'auto' ? '自动（FFmpeg 优先）' : (method === 'ffmpeg' ? '仅 FFmpeg' : '仅浏览器内')));
 
             if (audio) {
                 // ---------- 通道 A：原生宿主 + FFmpeg（装了 native-host 才有）----------
@@ -1683,7 +1702,7 @@
                         }
                     } else {
                         if (method === 'ffmpeg') {
-                            throw new Error('未检测到原生 FFmpeg 宿主（native-host 未安装或未注册）。\n把「合并方式」改回「自动」或「仅浏览器内封装」，或先安装 native-host。' +
+                            throw new Error('未检测到原生 FFmpeg 宿主（native-host 未安装或未注册）。\n把「合并方式」改回「自动」或「仅浏览器内」，或先安装 native-host。' +
                                 (probe && probe.error ? '\n（' + probe.error + '）' : ''));
                         }
                         console.log('[bili-dl] 未检测到原生宿主，使用浏览器内重封装：' + (probe && probe.error ? probe.error : ''));
@@ -1719,7 +1738,7 @@
                         } catch (e) {
                             if (isCancelled(e)) throw e;
                             if (method === 'mux') {
-                                throw new Error('浏览器内重封装失败（已选「仅浏览器内封装」，不自动回退）：' + (e && e.message ? e.message : e));
+                                throw new Error('浏览器内重封装失败（已选「仅浏览器内」，不自动回退）：' + (e && e.message ? e.message : e));
                             }
                             console.warn('[bili-dl] 浏览器内合并失败，回退到分离下载：', e);
                         }
@@ -1855,8 +1874,8 @@
         menu.appendChild(afmtLabel);
         menu.appendChild(afmtSel);
 
-        // ---- 合并方式（自动 / 仅 FFmpeg / 仅浏览器内封装）----
-        // ---- Merge method (auto / FFmpeg only / in-browser remux only) ----
+        // ---- 合并方式（自动 / 仅 FFmpeg / 仅浏览器内）----
+        // ---- Merge method (auto / FFmpeg only / in-browser only) ----
         const mmLabel = document.createElement('div');
         mmLabel.textContent = '合并方式';
         Object.assign(mmLabel.style, {
@@ -1866,7 +1885,7 @@
         const mmSel = document.createElement('select');
         mmSel.id = 'bili-dl-mm';
         Object.assign(mmSel.style, selectStyle);
-        [['auto', '自动（FFmpeg 优先）'], ['ffmpeg', '仅 FFmpeg（需宿主）'], ['mux', '仅浏览器内封装']].forEach(([v, t]) => {
+        [['auto', '自动（FFmpeg 优先）'], ['ffmpeg', '仅 FFmpeg（需宿主）'], ['mux', '仅浏览器内（不碰 FFmpeg）']].forEach(([v, t]) => {
             const o = document.createElement('option');
             o.value = v;
             o.textContent = t;

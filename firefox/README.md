@@ -32,7 +32,7 @@
 
 - **档位菜单**：按「档位 + 编码」分开列出，兼容性优先选 H.264，省流量选 HEVC / AV1
 - **三种下载**：仅音频（`.m4a` / `.mp3`）、仅视频（`.mp4`）、视频+音频（自动合并成单个 MP4）
-- **合并方式可选**：视频+音频可在面板上选「自动（FFmpeg 优先，失败自动回退）/ 仅 FFmpeg / 仅浏览器内封装」
+- **合并方式可选**（同时作用于 mp3 转码）：可在面板上选「自动（FFmpeg 优先，失败自动回退）/ 仅 FFmpeg / 仅浏览器内（不碰 FFmpeg）」
 - **音频格式可选**：仅音频支持 `m4a`（原声直存，最快）或 `mp3`（192kbps 转码）。
   **本机装了 FFmpeg 就自动交给它**（快得多、不占页面内存）；没装则在浏览器里用内置编码器转，
   **不需要安装任何东西、也不联网**
@@ -157,7 +157,7 @@ Firefox 版注册的是 **Mozilla 键**（`HKCU\Software\Mozilla\NativeMessaging
 
 - `自动（FFmpeg 优先）` —— 按上表顺序自动回退（前一个失败才换下一个）
 - `仅 FFmpeg` —— 只用通道 A；没装宿主会直接提示，不会偷偷换通道
-- `仅浏览器内封装` —— 只用通道 B，完全不碰宿主
+- `仅浏览器内（不碰 FFmpeg）` —— 只用通道 B；mp3 转码也只用内置编码器
 
 ## 目录结构
 
@@ -241,7 +241,7 @@ Unlike "sniff the highest quality" tools it does not guess: whatever the API han
 
 - **Tier menu** — one entry per "tier + codec"; pick H.264 for compatibility or HEVC / AV1 to save bandwidth
 - **Three download modes** — audio only (`.m4a` / `.mp3`), video only (`.mp4`), or video + audio merged into a single MP4
-- **Selectable merge method** — pick auto (prefer FFmpeg, fall back) / FFmpeg only / in-browser remux only from the panel
+- **Selectable merge method** (also governs mp3 transcoding) — pick auto (prefer FFmpeg, fall back) / FFmpeg only / in-browser only (never touches FFmpeg) from the panel
 - **Selectable audio format** — audio-only downloads can be `m4a` (saved as-is, fastest) or `mp3`
   (192kbps). **A local FFmpeg is used automatically when present** (much faster, no page memory);
   otherwise it transcodes in the browser with a built-in encoder: **nothing to install, no network**
@@ -375,7 +375,7 @@ The panel's **merge method** dropdown can override this (default `auto`):
 
 - `auto (prefer FFmpeg)` -- falls back in the order above
 - `FFmpeg only` -- channel A alone; a missing host is reported instead of silently switching
-- `in-browser remux only` -- channel B alone, never touches the host
+- `in-browser only (no FFmpeg)` -- channel B alone; mp3 transcoding also uses the built-in encoder only
 
 ## Layout
 

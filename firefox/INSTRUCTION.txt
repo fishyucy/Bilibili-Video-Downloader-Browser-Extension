@@ -126,7 +126,7 @@
   面板上的「音频格式」只影响「🎵 音频」这个按钮：
 
     m4a  直接把 B 站的原始音轨存下来：最快，音质与网页播放完全一致（默认）
-    mp3  转成 192kbps 的 mp3。自动在两条路里挑，你什么都不用设置：
+    mp3  转成 192kbps 的 mp3。自动在两条路里挑，你什么都不用设置（除非「合并方式」选了「仅浏览器内」或「仅 FFmpeg」，见第七节）：
 
          · 本机装了 FFmpeg（见 native-host\INSTRUCTION.txt）
            → 交给 FFmpeg 转：快得多，页面也完全不占内存。
@@ -226,7 +226,7 @@
 
     「自动（FFmpeg 优先）」  按上面的顺序自动回退 —— 前一个失败才换下一个
     「仅 FFmpeg」           只用通道 A；没装宿主会直接报错提示，不会偷偷换通道
-    「仅浏览器内封装」       只用通道 B，完全不碰宿主（不想用 FFmpeg 时选它）
+    「仅浏览器内（不碰 FFmpeg）」 只用通道 B；mp3 转码也只用内置编码器
 
   下载单条流时也有兜底：页面直连失败会自动改用后台通道，
   并且会依次尝试 B 站接口一并返回的备用 CDN 地址（有几个试几个）。
@@ -500,7 +500,7 @@
   The "Format" dropdown only affects the "🎵 audio" button:
 
     m4a  saves Bilibili's original audio track as-is: fastest, bit-identical to web playback (default)
-    mp3  transcodes to 192kbps mp3. It picks between two routes automatically -- nothing to set:
+    mp3  transcodes to 192kbps mp3. It picks between two routes automatically -- nothing to set (unless the "merge method" is "in-browser only" or "FFmpeg only"; see section 7):
 
          · A local FFmpeg is installed (see native-host\INSTRUCTION.txt)
            -> hand it over: much faster, and the page holds nothing in memory.
@@ -605,7 +605,7 @@
 
     "auto (prefer FFmpeg)"    falls back in the order above -- the next channel runs only when one fails
     "FFmpeg only"             channel A alone; a missing host is reported instead of silently switching
-    "in-browser remux only"   channel B alone, never touches the host
+    "in-browser only (no FFmpeg)"  channel B alone; mp3 also uses the built-in encoder only
 
   Single streams fall back too: if the direct page fetch fails it switches to the background channel,
   and it tries every backup CDN address the API returned alongside (as many as there are).
