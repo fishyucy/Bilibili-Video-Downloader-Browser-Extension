@@ -615,3 +615,37 @@ chrome.runtime.onConnect.addListener((port) => {
         }
     });
 });
+
+// ---------------------------------------------------------------------------
+// （Firefox 专属）安装后检查「站点访问」权限，缺失就打开引导页
+// (Firefox-only) after install, check site access and open the guide page when missing
+//
+// Firefox 的 MV3 把 host_permissions 当作「可选权限」，安装后可能尚未授予；
+// 没有站点访问时内容脚本不会注入，右下角面板根本不会出现 —— 所以这里主动引导。
+// Firefox MV3 treats host_permissions as an optional permission which may not be granted at
+// install time; without site access the content script is never injected and the panel never
+// appears -- hence this proactive guide.
+//
+// 说明：本段是火狐版特有代码（Chrome 版没有这一节）；用 browser 命名空间（promise 风格）。
+// Note: this block exists only in the Firefox edition (the Chrome edition has no equivalent);
+// it uses the browser namespace (promise style).
+// ---------------------------------------------------------------------------
+const SITE_ACCESS = { origins: ['*://*/*'] };
+
+function ensureSiteAccess(reason) {
+    if (typeof browser === 'undefined' || !browser.permissions) return;
+    browser.permissions.contains(SITE_ACCESS).then((granted) => {
+        if (granted) {
+            console.log('[bili-dl] 站点访问权限：已授予（' + reason + '）');
+            return;
+        }
+        console.log('[bili-dl] 站点访问权限：未授予（' + reason + '），打开引导页');
+        browser.tabs.create({ url: browser.runtime.getURL('welcome.html') }).catch(() => { /* ignore */ });
+    }).catch(() => { /* ignore */ });
+}
+
+chrome.runtime.onInstalled.addListener((details) => {
+    if (details && (details.reason === 'install' || details.reason === 'update')) {
+        ensureSiteAccess(details.reason);
+    }
+});

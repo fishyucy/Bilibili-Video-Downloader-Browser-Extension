@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器（火狐版）· INSTRUCTION
-  版本 1.22.3   Firefox 扩展（Manifest V3）
+  版本 1.22.4   Firefox 扩展（Manifest V3）
 ================================================================
 
 
@@ -48,6 +48,18 @@
     3. 打开任意 B 站视频页，右下角应出现下载面板
 
     临时载入的扩展在浏览器重启后失效，重启后重新载入一次即可。
+
+  ⚠️ 火狐特有的「站点访问」权限（一定要看）：
+
+     Firefox 把本扩展的网站访问列为「可选权限」，安装后可能尚未开启。
+     未开启时的表现：右下角面板不出现、控制台没有 [bili-dl] 日志
+     （内容脚本不会注入到页面）。
+
+     开启方式（任选）：
+       · 首次安装时扩展会自动打开一个引导页，点「开启站点访问权限」并确认；
+       · 或：about:addons → 本扩展 →「权限」→
+         打开「访问您在所有网站上的数据」。
+     授权后请刷新已打开的 B 站视频页（内容脚本需要重新注入）。
 
   ── 自己构建 / 自己签名（开发者）──
 
@@ -354,7 +366,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader (Firefox edition) · INSTRUCTION
-  Version 1.22.3   Firefox extension (Manifest V3)
+  Version 1.22.4   Firefox extension (Manifest V3)
 ================================================================
 
 
@@ -402,6 +414,19 @@
     3. Open any Bilibili video page -- the panel should appear in the bottom-right corner
 
     A temporary add-on disappears when the browser restarts; simply load it again.
+
+  ⚠️ Firefox-specific "site access" permission (important):
+
+     Firefox lists this extension's website access as an "optional permission"; it may not be
+     enabled right after installation. Symptoms when it is off: the bottom-right panel never
+     appears and the console shows no [bili-dl] logs (the content script is not injected).
+
+     How to enable (either way):
+       . On first install the extension opens a guide page automatically -- click
+         "Grant site access" and confirm;
+       . Or: about:addons -> this add-on -> "Permissions" ->
+         enable "Access your data for all websites".
+     After granting, reload any open Bilibili video page (the content script must be injected again).
 
   -- Building / signing it yourself (developers) --
 

@@ -66,6 +66,12 @@
 
 > 临时载入的扩展在**浏览器重启后失效**，重启后重新载入一次即可；改代码后在这里点「重新载入」。
 
+> ⚠️ **火狐特有的「站点访问」权限**：Firefox 把本扩展的网站访问列为**可选权限**，
+> 安装后可能尚未开启 —— 未开启时内容脚本不会注入，右下角面板不会出现。
+> · 首次安装时扩展会**自动打开一个引导页**，点「开启站点访问权限」按提示确认即可；
+> · 也可以随时在 `about:addons` → 本扩展 →「**权限**」→ 打开「**访问您在所有网站上的数据**」；
+> · 授权后请**刷新已打开的 B 站视频页**。
+
 ### 自己构建 / 自己签名（开发者）
 
 - 源码临时载入：选本文件夹里的 `manifest.json` 即可
@@ -263,6 +269,15 @@ release Firefox installs it directly.
 
 > A temporary add-on **disappears when the browser restarts**; just load it again. After editing
 > code, click **Reload** there and refresh the Bilibili page.
+
+> ⚠️ **Firefox-specific "site access" permission**: Firefox lists this extension's website
+> access as an **optional permission**, so it may not be enabled right after installation --
+> without it the content script is never injected and the panel will not appear.
+> · On first install the extension **opens a guide page** automatically; click "Grant site access"
+>   and confirm the dialog;
+> · Or enable it anytime in `about:addons` -> this add-on -> **Permissions** ->
+>   "Access your data for all websites";
+> · After granting, **reload any open Bilibili video page**.
 
 ### Building / signing it yourself (developers)
 

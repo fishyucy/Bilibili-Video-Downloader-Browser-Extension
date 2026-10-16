@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>B站视频/音频下载器（火狐版）· 权限引导</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { max-width: 720px; margin: 40px auto; padding: 0 20px;
+         font: 14px/1.75 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 15px; margin: 26px 0 8px; }
+  .card { border: 1px solid rgba(128,128,128,.35); border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+  .status { font-weight: 600; }
+  .ok { color: #1a7f37; }
+  .miss { color: #b42318; }
+  button { font-size: 15px; font-weight: 600; padding: 10px 18px; border-radius: 8px;
+           border: 0; cursor: pointer; background: #0a7cff; color: #fff; }
+  button:disabled { background: #9aa4b2; cursor: default; }
+  code { background: rgba(128,128,128,.18); padding: 1px 5px; border-radius: 4px; }
+  .muted { opacity: .8; font-size: 12.5px; }
+  hr { border: 0; border-top: 1px solid rgba(128,128,128,.3); margin: 26px 0; }
+</style>
+</head>
+<body>
+  <h1>B站视频/音频下载器（火狐版）· 权限引导</h1>
+
+  <div class="card">
+    <p>站点访问权限 Site access：<span id="status" class="status">检查中… / checking…</span></p>
+    <p><button id="grant" disabled>开启站点访问权限 / Grant site access</button></p>
+    <p class="muted" id="hint">　</p>
+  </div>
+
+  <h2>为什么需要「访问所有网站」的权限？ / Why "access to all websites"?</h2>
+  <div class="card">
+    <p>
+      · 读取 B 站视频页的音视频档位，并抓取你本来就能在网页上播放的流；<br>
+      · B 站音视频 CDN 的域名是动态的，所以权限需要覆盖所有网站，而不是某一个域名；<br>
+      · 除 B 站相关域名外，扩展不会访问其它网站；代码全开源，可随时审查。
+    </p>
+    <p>
+      · Reads the stream tiers of Bilibili video pages and fetches the streams you can already
+        play there;<br>
+      · Bilibili's media CDN hostnames are dynamic, so the permission must cover all sites
+        rather than a single domain;<br>
+      · Apart from Bilibili-related hosts the extension contacts nothing. The code is open
+        source and auditable.
+    </p>
+    <p>
+      Firefox 把这项权限列为「可选权限」，安装后可能尚未开启 —— 点上面的按钮授权即可
+      （随时可在 <code>about:addons</code> 里关闭）。授权后请
+      <b>刷新已打开的 B 站视频页</b>（内容脚本需要重新注入），或
+      <a href="https://www.bilibili.com/" target="_blank" rel="noreferrer">打开 bilibili.com</a> 试试。
+    </p>
+    <p>
+      Firefox lists this as an optional permission; it may not be enabled right after
+      installation -- click the button above to grant it (revocable anytime in
+      <code>about:addons</code>). After granting, <b>reload any open Bilibili video page</b>
+      (the content script must be injected again), or
+      <a href="https://www.bilibili.com/" target="_blank" rel="noreferrer">open bilibili.com</a> to try.
+    </p>
+  </div>
+
+  <script src="welcome.js"></script>
+</body>
+</html>
