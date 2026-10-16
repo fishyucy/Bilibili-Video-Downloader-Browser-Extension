@@ -70,17 +70,31 @@
 - 加载后**不要移动或删除**这个文件夹，否则扩展会失效（必要时重新加载一次即可）
 - 改了代码后：回到扩展管理页点该扩展卡片上的「重新加载」，再刷新 B 站页面
 
-### 可选：原生 FFmpeg（合并更好）
+### 可选：原生 FFmpeg（合并 / 转码加速）
 
-装了之后合并走本机 FFmpeg，输出带 faststart、可边下边播；不装也能用（走浏览器内重封装）。
+装了之后合并走本机 FFmpeg（输出带 faststart、可边下边播），mp3 转码也快得多；
+不装也能用（走浏览器内重封装 / 内置编码器）。
+
+宿主是**独立的一次性安装**，不在扩展包里 —— 到本仓库 Releases 下载
+`bili-dl-native-host-vX.Y.Z.zip` 并解压到固定文件夹，然后在 `native-host` 里依次运行：
 
 ```bat
-cd native-host
-build-host.cmd     :: 编译宿主（Windows 自带 csc，无需装 SDK）
-install.cmd        :: 注册宿主 + 按需下载 FFmpeg
+build-host.cmd     :: 编译出 host.exe 与 find-ffmpeg.exe（Windows 自带 csc，无需装 SDK）
+install.cmd        :: 注册宿主（Chromium 各厂商键）+ 找 FFmpeg
 ```
 
-详细步骤与排错见 [`native-host/INSTRUCTION.txt`](native-host/INSTRUCTION.txt)。
+`install.cmd` 找不到 FFmpeg 时会问 [D] 下载 / [F] 本机查找；选 F 会**自动调用
+`find-ffmpeg.exe`** 搜索本机现成可用的 FFmpeg（**无需手动运行**；也没有
+`find-ffmpeg.cmd` 这种文件）。
+
+（从本仓库 `chrome/` 目录直接开发的用户：在 `chrome/native-host` 里跑同样两步即可。）
+
+装好后怎么确认：合并时按钮显示「**FFmpeg 合并中…**」= 走原生宿主
+（显示「合并中…」= 浏览器内重封装）。宿主注册表指向解压出来的文件夹，
+别移动 / 删除；要换位置，重跑一次 `install.cmd`。
+
+详细步骤与排错见宿主包内的 `native-host/INSTRUCTION.txt`
+（本仓库内即 [`native-host/INSTRUCTION.txt`](native-host/INSTRUCTION.txt)）。
 
 ## 使用
 
@@ -220,17 +234,33 @@ This is a Chromium extension (Manifest V3), so every Chromium-based browser inst
 - Do not move or delete the folder afterwards, or the extension stops working (just load it again if you must)
 - After editing code: click **Reload** on the extension card, then refresh the Bilibili page
 
-### Optional: native FFmpeg
+### Optional: native FFmpeg (faster merging / transcoding)
 
-With it, merging runs through your local FFmpeg, so the output is faststart-enabled (seekable while downloading). Without it everything still works via the in-browser remux.
+With it, merging runs through your local FFmpeg (faststart output, seekable while downloading) and
+mp3 transcoding gets much faster. Without it everything still works (in-browser remux / built-in encoder).
+
+The host is a **separate one-time install** and is not inside the extension package: download
+`bili-dl-native-host-vX.Y.Z.zip` from this repository's Releases, unzip it to a fixed folder, then
+inside `native-host` run in order:
 
 ```bat
-cd native-host
-build-host.cmd     :: build the host (uses the csc bundled with Windows; no SDK needed)
-install.cmd        :: register the host, download FFmpeg on demand
+build-host.cmd     :: builds host.exe and find-ffmpeg.exe (csc from Windows; no SDK needed)
+install.cmd        :: registers the host (Chromium vendor keys) and locates FFmpeg
 ```
 
-See [`native-host/INSTRUCTION.txt`](native-host/INSTRUCTION.txt) for details and troubleshooting.
+When install.cmd cannot find FFmpeg it asks [D] download / [F] search this machine; option F
+**runs find-ffmpeg.exe automatically** (you never run it by hand, and there is no
+`find-ffmpeg.cmd` -- only the compiled `find-ffmpeg.exe`).
+
+(Developing from this repository's `chrome/` folder? Just run the same two steps inside
+`chrome/native-host`.)
+
+To confirm it works: the merge button shows "**FFmpeg merging…**" when the native host is used
+("merging…" means the in-browser remux ran instead). The registry points at the extracted folder, so
+do not move or delete it; to relocate, re-run install.cmd.
+
+See `native-host/INSTRUCTION.txt` inside the host package for details and troubleshooting
+([in this repository](native-host/INSTRUCTION.txt)).
 
 ## Usage
 

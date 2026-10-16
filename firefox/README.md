@@ -87,20 +87,34 @@
 - 用「临时载入 + 源码」方式开发时，**不要移动或删除**这个文件夹，否则扩展会失效（必要时重新载入即可）
 - 改了代码后：回到 `about:debugging` 点该扩展的「重新载入」，再刷新 B 站页面
 
-### 可选：原生 FFmpeg（合并更好）
+### 可选：原生 FFmpeg（合并 / 转码加速）
 
-装了之后合并走本机 FFmpeg，输出带 faststart、可边下边播；不装也能用（走浏览器内重封装）。
+装了之后合并走本机 FFmpeg（输出带 faststart、可边下边播），mp3 转码也快得多；
+不装也能用（走浏览器内重封装 / 内置编码器）。
+
+宿主是**独立的一次性安装**，和「装扩展」是两件事 —— 扩展包里不含它（Chrome 版也一样）：
+
+1. 到本仓库 **Releases** 下载 `bili-dl-native-host-firefox-vX.Y.Z.zip`（宿主源码包），
+   解压到一个**固定文件夹**（别放桌面随手清理的位置）
+2. 在解压出来的 `native-host` 里依次运行：
 
 ```bat
-cd native-host
-build-host.cmd     :: 编译宿主（Windows 自带 csc，无需装 SDK）
-install.cmd        :: 注册宿主 + 按需下载 FFmpeg
+build-host.cmd     :: 编译出 host.exe 与 find-ffmpeg.exe（Windows 自带 csc，无需装 SDK）
+install.cmd        :: 注册宿主（Mozilla 键）+ 找 FFmpeg
 ```
+
+`install.cmd` 找不到 FFmpeg 时会问你要 [D] 下载一份（约 90MB）还是 [F] **在本机找**（推荐）；
+选 F 后它会**自动调用 `find-ffmpeg.exe`** 搜索本机现成可用的 FFmpeg 并复制进 `bin\` ——
+**你不需要手动运行它**（也没有 `find-ffmpeg.cmd` 这种文件；只有编译出来的 `find-ffmpeg.exe`，
+愿意的话可以单独双击使用）。
+
+装好后怎么确认：合并时按钮显示「**FFmpeg 合并中…**」= 走原生宿主（显示「合并中…」= 浏览器内重封装）。
+注意：宿主注册表指向解压出来的这个文件夹，**别移动 / 删除**；要换位置，重跑一次 `install.cmd` 即可。
 
 Firefox 版注册的是 **Mozilla 键**（`HKCU\Software\Mozilla\NativeMessagingHosts`），
 与 Chrome 版的注册互不影响 —— 两个版本可以并存，各注册各的。
 
-详细步骤与排错见 [`native-host/INSTRUCTION.txt`](native-host/INSTRUCTION.txt)。
+详细步骤与排错见宿主包内的 `native-host/INSTRUCTION.txt`。
 
 ## 使用
 
@@ -262,21 +276,37 @@ release Firefox installs it directly.
   or the extension stops working
 - After editing code: click **Reload** in `about:debugging`, then refresh the Bilibili page
 
-### Optional: native FFmpeg
+### Optional: native FFmpeg (faster merging / transcoding)
 
-With it, merging runs through your local FFmpeg, so the output is faststart-enabled (seekable while downloading). Without it everything still works via the in-browser remux.
+With it, merging runs through your local FFmpeg (faststart output, seekable while downloading) and
+mp3 transcoding gets much faster. Without it everything still works (in-browser remux / built-in encoder).
+
+The host is a **separate one-time install** -- it is not inside the extension package (same is true
+for the Chrome edition):
+
+1. Download `bili-dl-native-host-firefox-vX.Y.Z.zip` (host sources) from this repository's **Releases**
+   and unzip it to a **fixed folder** (not somewhere you will clean up)
+2. Inside the extracted `native-host`, run in order:
 
 ```bat
-cd native-host
-build-host.cmd     :: build the host (uses the csc bundled with Windows; no SDK needed)
-install.cmd        :: register the host, download FFmpeg on demand
+build-host.cmd     :: builds host.exe and find-ffmpeg.exe (csc from Windows; no SDK needed)
+install.cmd        :: registers the host (Mozilla key) and locates FFmpeg
 ```
+
+When install.cmd cannot find FFmpeg it asks: [D] download one (~90MB) or [F] **search this machine**
+(recommended); option F **runs find-ffmpeg.exe automatically** to locate a working FFmpeg and copy it
+into `bin\` -- you never run it by hand (and there is no `find-ffmpeg.cmd`; only the compiled
+`find-ffmpeg.exe`, which you may run standalone if you wish).
+
+To confirm it works: the merge button shows "**FFmpeg merging…**" when the native host is used
+("merging…" means the in-browser remux ran instead). The registry points at the extracted folder, so
+**do not move or delete it**; to relocate, just run install.cmd again from the new place.
 
 The Firefox edition registers the **Mozilla key** (`HKCU\Software\Mozilla\NativeMessagingHosts`),
 which never collides with the Chrome edition's keys -- the two editions coexist, each registering
 its own host.
 
-See [`native-host/INSTRUCTION.txt`](native-host/INSTRUCTION.txt) for details and troubleshooting.
+See the `native-host/INSTRUCTION.txt` inside the host package for details and troubleshooting.
 
 ## Usage
 
