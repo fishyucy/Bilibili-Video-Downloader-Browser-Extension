@@ -1,0 +1,58 @@
+关于本包可能内含的 ffmpeg.exe
+About the ffmpeg.exe this archive may contain
+
+  只有文件名带 -full 的压缩包（bili-dl-native-host-vX.Y.Z-full.zip）里才带 ffmpeg.exe。
+  没有 -full 的精简包不含它，你可以：
+    · 运行 find-ffmpeg.exe，让它在你的电脑里找一份现成的，或
+    · 运行 get-ffmpeg.cmd，从网上下载一份，或
+    · 直接把自己的 ffmpeg.exe 放进 native-host\bin\ 下
+
+  Only the archive whose name ends in "-full" bundles ffmpeg.exe. The slim archive
+  (without "-full") does not; in that case you can run find-ffmpeg.exe to locate one
+  already on your machine, run get-ffmpeg.cmd to download one, or simply drop your own
+  ffmpeg.exe into native-host\bin\.
+
+
+来源 / Source
+  FFmpeg 静态构建，由 gyan.dev 编译：
+      https://www.gyan.dev/ffmpeg/builds/
+  本项目分发的是该页面的 "essentials" 构建（版本号见 bin\ffmpeg.source.txt）。
+
+  A static FFmpeg build compiled by gyan.dev; this project redistributes the
+  "essentials" build from that page (the exact version is recorded in
+  bin\ffmpeg.source.txt).
+
+
+授权 / License
+  FFmpeg 以 GPL v3 授权（gyan.dev 的 essentials 构建启用了 --enable-gpl）。
+  本项目同样是 GPL-3.0，两者兼容。
+
+  许可证全文见本目录上一级的 LICENSE 文件，或：
+      https://www.gnu.org/licenses/gpl-3.0.txt
+
+  FFmpeg is licensed under the GPL v3 (gyan.dev's essentials build enables --enable-gpl).
+  This project is GPL-3.0 as well, so the two are compatible.
+
+  The full license text is in the LICENSE file one level up, or at:
+      https://www.gnu.org/licenses/gpl-3.0.txt
+
+
+获取对应源码 / Obtaining the corresponding source
+  GPL v3 要求分发二进制时一并提供获取对应源码的方式：
+    · FFmpeg 源码下载页：https://ffmpeg.org/download.html
+    · FFmpeg 的 git 仓库：https://git.ffmpeg.org/ffmpeg.git
+    · 该构建所用的编译脚本与补丁，见 https://www.gyan.dev/ffmpeg/builds/ 页面上的说明
+
+  The GPL v3 requires that distributing a binary also provides a way to obtain the
+  corresponding source:
+    · FFmpeg downloads:  https://ffmpeg.org/download.html
+    · FFmpeg git:        https://git.ffmpeg.org/ffmpeg.git
+    · The build scripts and patches this build used are described on
+      https://www.gyan.dev/ffmpeg/builds/
+
+
+修改 / Modifications
+  本项目没有改动 FFmpeg 的任何代码，只是原样分发编译好的可执行文件。
+
+  This project does not modify FFmpeg in any way; the compiled binary is
+  redistributed as-is.

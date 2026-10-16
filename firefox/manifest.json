@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "B站视频/音频下载器（火狐版）",
+  "version": "1.22.2",
+  "author": "fish",
+  "description": "B站视频页下载面板：可选画质/音质档位，音视频自动合并为单个 MP4，支持多分P、暂停与取消。 | Download panel for Bilibili videos: pick any tier, auto-merge to one MP4.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "bili-dl@fishyucy.github.io",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "permissions": [
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "nativeMessaging",
+    "downloads"
+  ],
+  "host_permissions": [
+    "*://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.bilibili.com/video/*"
+      ],
+      "js": [
+        "vendor/lamejs.iife.js",
+        "quality.js",
+        "wbi.js",
+        "muxer.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
