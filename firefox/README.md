@@ -1,8 +1,8 @@
 # B站视频/音频下载器（Firefox 版）· Bilibili Video & Audio Downloader
 
-> Firefox 扩展（Manifest V3）· 在视频页提供下载面板，可选任意画质与音质档位，音视频自动合并为单个 MP4。
+> Firefox 扩展（Manifest V3）· 在视频页 / festival 活动页提供下载面板，可选任意画质与音质档位，音视频自动合并为单个 MP4。
 >
-> A Firefox extension (Manifest V3). Adds a download panel to Bilibili video pages: pick any quality and audio tier, and get a single merged MP4.
+> A Firefox extension (Manifest V3). Adds a download panel to Bilibili video and festival pages: pick any quality and audio tier, and get a single merged MP4.
 >
 > **本目录是仓库里的火狐版（兄弟项目之一）；与 [Chrome / Edge 版](../chrome/) 功能对齐、各自适配、共同维护、共用同一个版本号，不互为新旧版本。**
 >
@@ -194,7 +194,7 @@ tests/             Node 测试脚本（选流逻辑 / WBI 签名 / 重封装）
 
 ## 已知限制
 
-- 只匹配 `https://www.bilibili.com/video/*`，不支持番剧 / 直播 / 付费课程
+- 只匹配 `https://www.bilibili.com/video/*` 与 `https://www.bilibili.com/festival/*`，不支持番剧 / 直播 / 付费课程
 - 不做批量下载、不做收藏夹 / 播放列表
 - 高画质与杜比音轨需要对应账号权限（登录 / 大会员），这是 B 站的限制
 - mp3 是**本地转码**（Web Audio 解码 + lamejs 编码），依赖浏览器的 AAC 解码器。
@@ -412,7 +412,7 @@ More in section 8 of [`INSTRUCTION.txt`](INSTRUCTION.txt).
 
 ## Known limitations
 
-- Only matches `https://www.bilibili.com/video/*`; no bangumi, live streams or paid courses
+- Only matches `https://www.bilibili.com/video/*` and `https://www.bilibili.com/festival/*`; no bangumi, live streams or paid courses
 - No batch / playlist / favourites downloading
 - High tiers and Dolby audio depend on your account entitlement (login / premium) — that is Bilibili's rule, not ours
 - mp3 is **transcoded locally** (Web Audio decode + lamejs encode) and relies on the browser's AAC

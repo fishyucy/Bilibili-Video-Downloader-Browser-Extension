@@ -20,7 +20,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.bilibili.com/video/*"
+        "https://www.bilibili.com/video/*",
+        "https://www.bilibili.com/festival/*"
       ],
       "js": [
         "vendor/lamejs.iife.js",

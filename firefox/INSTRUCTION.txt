@@ -6,7 +6,7 @@
 
 【一、它能做什么】
 
-  打开 B 站视频页时，右下角会出现一个下载面板：
+  打开 B 站视频页 / festival 活动页时，右下角会出现一个下载面板：
     · 列出这个视频真实可用的画质 / 音质档位，由你自己挑
     · 三种下载方式：音频（.m4a 或 .mp3）、仅视频、视频+音频（自动合并成单个 MP4）
     · 音频可转成 mp3：纯前端转码，不需要 ffmpeg，也不联网
@@ -379,7 +379,7 @@
 
 【1. What it does】
 
-  Opening a Bilibili video page brings up a download panel in the bottom-right corner:
+  Opening a Bilibili video or festival page brings up a download panel in the bottom-right corner:
     · lists the quality / audio tiers this video really offers, for you to pick from
     · three download modes: audio only (.m4a or .mp3), video only, video + audio (auto-merged into one MP4)
     · audio can be transcoded to mp3 purely in the browser -- no ffmpeg, no network
