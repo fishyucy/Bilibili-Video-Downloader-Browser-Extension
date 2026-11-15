@@ -1504,7 +1504,7 @@
             if (dlControl.btn && dlControl.btn.textContent.indexOf('已暂停') < 0) {
                 dlControl.btn.textContent = '已暂停 · ' + dlControl.btn.textContent;
             }
-            console.log('[bili-dl] 已暂停' + (dlControl.native ? '（原生宿主侧的暂停可能不即时）' : ''));
+            console.log('[bili-dl] 已暂停' + (dlControl.native ? '（原生宿主）' : ''));
         } else {
             // 恢复按钮文字：只在前缀还在时去掉它；若进度回调已覆盖过文字就不动
             // Restore the label: strip the prefix only while it is still there; if a progress

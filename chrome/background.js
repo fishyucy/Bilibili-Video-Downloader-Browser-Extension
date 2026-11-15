@@ -560,10 +560,18 @@ chrome.runtime.onConnect.addListener((port) => {
         // ---- Control messages: pause / resume / cancel ----
         if (msg.type === 'pause') {
             if (dl) { dl.paused = true; console.log('[bili-dl] 后台下载已暂停'); }
+            // 原生宿主的下载在独立进程里，必须把暂停转发过去；否则只是界面暂停
+            // The native host downloads in its own process, so pause must be forwarded or only the UI pauses
+            if (nativePort) {
+                try { nativePort.postMessage({ action: 'pause' }); console.log('[bili-dl] 原生宿主已暂停'); } catch (e) { /* 宿主可能已退出 */ }
+            }
             return;
         }
         if (msg.type === 'resume') {
             if (dl) { dl.paused = false; releaseDlWaiters(dl, false); console.log('[bili-dl] 后台下载已继续'); }
+            if (nativePort) {
+                try { nativePort.postMessage({ action: 'resume' }); console.log('[bili-dl] 原生宿主已继续'); } catch (e) { /* 宿主可能已退出 */ }
+            }
             return;
         }
         if (msg.type === 'cancel') {
