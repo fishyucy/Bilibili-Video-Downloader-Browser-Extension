@@ -29,6 +29,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
@@ -352,6 +353,51 @@ class BiliDlHost
         return null;
     }
 
+    // ------------------------------------------------------------ 下载目录
+    // ------------------------------------------------------------ Download folder
+    // Windows 的「下载」文件夹可以被用户移动到别的盘；%USERPROFILE%\Downloads 只是默认值。
+    // 用 Known Folder API 取当前位置，取不到再退回默认路径。
+    // The Windows Downloads folder can be relocated to another drive; %USERPROFILE%\Downloads is
+    // only the default. Ask the Known Folder API for the current location, then fall back.
+    static readonly Guid FOLDERID_Downloads = new Guid("374DE290-123F-4565-9164-39C4925E467B");
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    static extern int SHGetKnownFolderPath(ref Guid rfid, uint dwFlags, IntPtr hToken, out IntPtr ppszPath);
+
+    static string KnownDownloadsDir()
+    {
+        IntPtr p = IntPtr.Zero;
+        try
+        {
+            Guid id = FOLDERID_Downloads;
+            int hr = SHGetKnownFolderPath(ref id, 0, IntPtr.Zero, out p);
+            if (hr == 0 && p != IntPtr.Zero)
+            {
+                string path = Marshal.PtrToStringUni(p);
+                if (!string.IsNullOrEmpty(path)) return path;
+            }
+        }
+        catch { }
+        finally
+        {
+            if (p != IntPtr.Zero) Marshal.FreeCoTaskMem(p);
+        }
+        return null;
+    }
+
+    static string DefaultDownloadDir()
+    {
+        string known = KnownDownloadsDir();
+        if (!string.IsNullOrEmpty(known)) return known;
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+    }
+
+    static string EffectiveDownloadDir()
+    {
+        string env = Environment.GetEnvironmentVariable("BILIDL_OUTDIR");
+        return string.IsNullOrEmpty(env) ? DefaultDownloadDir() : env;
+    }
+
     static void HandlePing()
     {
         string ffmpeg = FindFfmpeg();
@@ -366,7 +412,7 @@ class BiliDlHost
         string version = "";
         try { version = RunCapture(ffmpeg, "-version").Split('\n')[0].Trim(); }
         catch { version = "unknown"; }
-        WriteMessage("{\"ok\":true,\"ffmpeg\":\"" + Escape(ffmpeg) + "\",\"version\":\"" + Escape(version) + "\"}");
+        WriteMessage("{\"ok\":true,\"ffmpeg\":\"" + Escape(ffmpeg) + "\",\"version\":\"" + Escape(version) + "\",\"wav\":true,\"outDir\":\"" + Escape(EffectiveDownloadDir()) + "\"}");
     }
 
     static string RunCapture(string exe, string arguments)
@@ -464,11 +510,8 @@ class BiliDlHost
         string audioUrl = GetString(raw, "audioUrl");
         string filename = SanitizeName(GetString(raw, "filename"));
         string outDir = GetString(raw, "outDir");
-        if (string.IsNullOrEmpty(outDir)) outDir = Environment.GetEnvironmentVariable("BILIDL_OUTDIR");
-        if (string.IsNullOrEmpty(outDir))
-        {
-            outDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-        }
+        if (string.IsNullOrEmpty(outDir)) outDir = EffectiveDownloadDir();
+        Log("outDir = " + outDir);
 
         hCancelled = false;   // 每次合并都从干净状态开始 / every merge starts from a clean state
         hPaused = false;
@@ -561,14 +604,17 @@ class BiliDlHost
 
     // ---------------------------------------------------------------- 转码
     // ---------------------------------------------------------------- Transcode
-    // 把音频流转成 mp3：宿主自己下载，再交给 ffmpeg。扩展侧因此不必把整个
+    // 把音频流转成 mp3 / wav：宿主自己下载，再交给 ffmpeg。扩展侧因此不必把整个
     // 文件读进内存，也比纯 JS 编码器快得多。
-    // Turn an audio stream into mp3: the host downloads it and hands it to ffmpeg, so the
+    // Turn an audio stream into mp3 / wav: the host downloads it and hands it to ffmpeg, so the
     // extension never buffers the whole file and it is far faster than a pure-JS encoder.
     static void HandleTranscode(string raw)
     {
+        string format = GetString(raw, "format");
+        if (format != "wav") format = "mp3";
+
         string ffmpeg = FindFfmpeg();
-        Log("transcode -> ffmpeg " + (ffmpeg == null ? "未找到" : ffmpeg));
+        Log("transcode " + format + " -> ffmpeg " + (ffmpeg == null ? "未找到" : ffmpeg));
         if (ffmpeg == null)
         {
             WriteMessage("{\"type\":\"done\",\"ok\":false,\"error\":\"未找到 ffmpeg.exe。请运行 native-host\\\\install.cmd 自动下载，或把 ffmpeg.exe 放到 native-host\\\\bin\\\\ 下。\"}");
@@ -584,7 +630,7 @@ class BiliDlHost
 
         string filename = SanitizeName(GetString(raw, "filename"));
         // 兜底名按目标格式来（正常都会传文件名） / fallback name follows the target format (a name is normally supplied)
-        if (filename == "bilibili.mp4") filename = "bilibili.mp3";
+        if (filename == "bilibili.mp4") filename = "bilibili." + format;
 
         int bitrate = 192;
         string bitrateText = GetString(raw, "bitrate");
@@ -595,21 +641,21 @@ class BiliDlHost
         }
 
         string outDir = GetString(raw, "outDir");
-        if (string.IsNullOrEmpty(outDir)) outDir = Environment.GetEnvironmentVariable("BILIDL_OUTDIR");
-        if (string.IsNullOrEmpty(outDir))
-        {
-            outDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-        }
+        if (string.IsNullOrEmpty(outDir)) outDir = EffectiveDownloadDir();
+        Log("outDir = " + outDir);
 
-        // 先确认这份 ffmpeg 带 mp3 编码器，再开始下载：否则下完一遍才发现转不了，纯浪费
-        // Check for the mp3 encoder before downloading; otherwise a build without it wastes the whole download
-        string encoders = "";
-        try { encoders = RunCapture(ffmpeg, "-hide_banner -encoders"); }
-        catch { encoders = ""; }
-        if (encoders.IndexOf("libmp3lame", StringComparison.OrdinalIgnoreCase) < 0)
+        // 只有 mp3 需要 libmp3lame；wav 的 pcm_s16le 是 ffmpeg 内置的
+        // Only mp3 needs libmp3lame; wav's pcm_s16le is built into ffmpeg
+        if (format == "mp3")
         {
-            WriteMessage("{\"type\":\"done\",\"ok\":false,\"error\":\"这份 ffmpeg 不带 libmp3lame（mp3 编码器），请换一个完整构建\"}");
-            return;
+            string encoders = "";
+            try { encoders = RunCapture(ffmpeg, "-hide_banner -encoders"); }
+            catch { encoders = ""; }
+            if (encoders.IndexOf("libmp3lame", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                WriteMessage("{\"type\":\"done\",\"ok\":false,\"error\":\"这份 ffmpeg 不带 libmp3lame（mp3 编码器），请换一个完整构建\"}");
+                return;
+            }
         }
 
         hCancelled = false;   // 每次转码都从干净状态开始 / every transcode starts from a clean state
@@ -634,8 +680,11 @@ class BiliDlHost
 
             ProcessStartInfo psi = new ProcessStartInfo();
             psi.FileName = ffmpeg;
+            string codec = format == "wav"
+                ? "-vn -c:a pcm_s16le"
+                : "-vn -c:a libmp3lame -b:a " + bitrate + "k";
             psi.Arguments = "-hide_banner -nostdin -y -loglevel error -i \"" + tmpAudio +
-                            "\" -vn -c:a libmp3lame -b:a " + bitrate + "k \"" + outFile + "\"";
+                            "\" " + codec + " \"" + outFile + "\"";
             psi.UseShellExecute = false;
             psi.CreateNoWindow = true;
             psi.RedirectStandardOutput = true;

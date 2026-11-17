@@ -114,7 +114,7 @@
 
   另外，宿主日志 %TEMP%\bilidl_host.log 里从 v1.20.3 起会记录：
     · 每次启动时的 AppDir 与期望的 ffmpeg 路径
-    · 每次 ping / merge / transcode 实际找到的 ffmpeg
+    · 每次 ping / merge / transcode 实际找到的 ffmpeg 与本次输出目录
 
   这两份信息基本能一眼定位是「路径算错了」还是「宿主根本没被调用」。
   注意：host.exe 是 GUI 子系统程序，直接双击它「看不到任何输出」是正常的，
@@ -145,14 +145,14 @@
        -c copy 表示不转码、直接复制，所以几秒钟就能完成，画质音质零损失
     3. 删除临时文件，把结果路径回报给扩展
 
-  输出位置：默认 %USERPROFILE%\Downloads
+  输出位置：系统「下载」文件夹（Windows Known Folder；被移动到别的盘也能识别）
     也可以用环境变量 BILIDL_OUTDIR 指定别的目录。
 
   目录里已经有同名文件时，会自动加编号，不会覆盖（和资源管理器的规矩一样）：
 
       视频.mp4  →  视频 (1).mp4  →  视频 (2).mp4  →  …
 
-    mp3 转码的输出也是同样的规则。编号里那个空格是故意的 —— 跟 Windows 一致。
+    mp3 / wav 转码的输出也是同样的规则。编号里那个空格是故意的 —— 跟 Windows 一致。
     （FFmpeg 本身带 -y，会直接覆盖同名文件，所以宿主在真正调用它之前一刻才敲定路径 ——
     下载期间新冒出来的同名文件也算数。）
 
@@ -258,7 +258,7 @@
 
   With the host installed, two things use it automatically:
     - video + audio merging (lossless remux)
-    - mp3 transcoding, when Audio format is set to mp3 (much faster than the built-in encoder)
+    - mp3 / wav transcoding, when Audio format is set to mp3 / wav (much faster than the built-in encoder)
         It does three things, in order:
           1) writes the host manifest com.bilidl.merger.json pointing at host.exe's absolute path
           2) registers three browsers under HKCU: Chrome / Edge / Chromium (unused ones do no harm)
@@ -337,7 +337,7 @@
 
   The host log at %TEMP%\bilidl_host.log also records, since v1.20.3:
     - AppDir and the expected ffmpeg path on every start
-    - the ffmpeg actually found on every ping / merge / transcode
+    - the ffmpeg actually found on every ping / merge / transcode, plus the output folder used
 
   Between the two you can tell immediately whether the path is computed wrong or the
   host is not being called at all.
@@ -369,15 +369,15 @@
           -c copy copies instead of re-encoding, so it finishes in seconds and loses nothing
     3. deletes the temp files and reports the output path back to the extension
 
-  Output location: %USERPROFILE%\Downloads by default
-       Set the BILIDL_OUTDIR environment variable to use a different folder.
+  Output location: the system Downloads folder (Windows Known Folder; a relocated folder is
+       detected as well). Set the BILIDL_OUTDIR environment variable to use a different folder.
 
   If a file of that name is already there, a number is appended instead of overwriting
   (exactly like Windows Explorer):
 
       video.mp4  ->  video (1).mp4  ->  video (2).mp4  ->  ...
 
-    The same rule applies to mp3 transcoding output. The space in the number is deliberate,
+    The same rule applies to mp3 / wav transcoding output. The space in the number is deliberate,
     to match Windows. (FFmpeg itself takes -y and would overwrite, so the host settles on a
     free path right before it starts writing -- same-named files that appeared during the
     download count too.)

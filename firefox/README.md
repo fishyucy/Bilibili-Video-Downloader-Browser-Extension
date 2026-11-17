@@ -31,14 +31,16 @@
 ## 特性
 
 - **档位菜单**：按「档位 + 编码」分开列出，兼容性优先选 H.264，省流量选 HEVC / AV1
-- **三种下载**：仅音频（`.m4a` / `.mp3`）、仅视频（`.mp4`）、视频+音频（自动合并成单个 MP4）
-- **合并方式可选**（同时作用于 mp3 转码）：可在面板上选「自动（FFmpeg 优先，失败自动回退）/ 仅 FFmpeg / 仅浏览器内（不碰 FFmpeg）」
-- **音频格式可选**：仅音频支持 `m4a`（原声直存，最快）或 `mp3`（192kbps 转码）。
-  **本机装了 FFmpeg 就自动交给它**（快得多、不占页面内存）；没装则在浏览器里用内置编码器转，
+- **三种下载**：仅音频（`.m4a` / `.mp3` / `.wav`）、仅视频（`.mp4`）、视频+音频（自动合并成单个 MP4）
+- **合并方式可选**（同时作用于 mp3 / wav 转码）：可在面板上选「自动（FFmpeg 优先，失败自动回退）/ 仅 FFmpeg / 仅浏览器内（不碰 FFmpeg）」
+- **音频格式可选**：仅音频支持 `m4a`（原声直存，最快）、`mp3`（192kbps 转码）或 `wav`（16-bit PCM，兼容性最好，文件较大）。
+  **本机装了 FFmpeg 就自动交给它**（快得多、不占页面内存）；没装则在浏览器里解码后转，
   **不需要安装任何东西、也不联网**
 - **自动合并**：搬运 MP4 盒子 + 改写 4 字节 track_ID，**不转码**，画质音质零损失
 - **暂停 / 继续 / 取消**：三条下载通道都支持，取消不会触发重试
 - **多分P**：自动识别当前播放的分P，切P自动重新读取档位
+- **下载路径检测**：面板上一键查看原生宿主实际输出目录与浏览器最近一次下载位置；
+  宿主能识别被移动到其他盘的 Windows「下载」文件夹
 - **三条通道自动回退**：页面直连 → 后台 Service Worker → 分片下载，主地址失败自动换备用 CDN
 - **零依赖、无构建**：纯原生 JavaScript，改完直接在浏览器重载即生效
 
@@ -96,7 +98,7 @@
 
 ### 可选：原生 FFmpeg（合并 / 转码加速）
 
-装了之后合并走本机 FFmpeg（输出带 faststart、可边下边播），mp3 转码也快得多；
+装了之后合并走本机 FFmpeg（输出带 faststart、可边下边播），mp3 / wav 转码也快得多；
 不装也能用（走浏览器内重封装 / 内置编码器）。
 
 宿主是**独立的一次性安装**，和「装扩展」是两件事 —— 扩展包里不含它（Chrome 版也一样）：
@@ -137,7 +139,7 @@ Firefox 版注册的是 **Mozilla 键**（`HKCU\Software\Mozilla\NativeMessaging
 
 1. 打开视频页，等右下角档位列表自动填好（约 2 秒；没读到就点「↻ 读取可选档位」）
 2. （可选）在画质 / 音质下拉里选档位，不选就按「最高（自动）」
-3. （可选）在**音频格式**下拉里选 `m4a` 或 `mp3`；选 mp3 会在音频下完后自动转码
+3. （可选）在**音频格式**下拉里选 `m4a`、`mp3` 或 `wav`；选 mp3 / wav 会在音频下完后自动转码
 4. 点「🎬🎵 视频+音频」，等它下载、合并，右下角浮层告诉你文件在哪（点一下可关）
 5. 中途可随时暂停或取消
 
@@ -157,7 +159,7 @@ Firefox 版注册的是 **Mozilla 键**（`HKCU\Software\Mozilla\NativeMessaging
 
 - `自动（FFmpeg 优先）` —— 按上表顺序自动回退（前一个失败才换下一个）
 - `仅 FFmpeg` —— 只用通道 A；没装宿主会直接提示，不会偷偷换通道
-- `仅浏览器内（不碰 FFmpeg）` —— 只用通道 B；mp3 转码也只用内置编码器
+- `仅浏览器内（不碰 FFmpeg）` —— 只用通道 B；mp3 / wav 转码也只用内置编码器
 
 ## 目录结构
 
@@ -168,6 +170,7 @@ background.js      后台 Service Worker：兜底下载通道（改写请求头 
 quality.js         画质 / 音质选择逻辑（档位排序、编码识别）
 wbi.js             B 站 WBI 签名
 muxer.js           分片 MP4（fMP4）双轨重封装
+wav.js             WAV（16-bit PCM）编码
 vendor/            第三方库：lamejs（mp3 编码，LGPL-3.0）+ 其许可证与来源说明
 INSTRUCTION.txt    完整使用说明书
 LICENSE            GPL-3.0 许可全文
@@ -197,8 +200,9 @@ tests/             Node 测试脚本（选流逻辑 / WBI 签名 / 重封装）
 - 只匹配 `https://www.bilibili.com/video/*` 与 `https://www.bilibili.com/festival/*`，不支持番剧 / 直播 / 付费课程
 - 不做批量下载、不做收藏夹 / 播放列表
 - 高画质与杜比音轨需要对应账号权限（登录 / 大会员），这是 B 站的限制
-- mp3 是**本地转码**（Web Audio 解码 + lamejs 编码），依赖浏览器的 AAC 解码器。
-  长音频转码需要几秒到几十秒并占用一定内存；只想要原声或追求速度，就保持 `m4a`
+- mp3 / wav 是**本地转码**（Web Audio 解码；mp3 再用 lamejs 编码，wav 直接写 PCM），
+  依赖浏览器的 AAC 解码器。长音频转码需要几秒到几十秒并占用一定内存；
+  wav 是 16-bit PCM，文件约为 m4a 的十倍；只想要原声或追求速度，就保持 `m4a`
 
 ## 许可
 
@@ -240,14 +244,18 @@ Unlike "sniff the highest quality" tools it does not guess: whatever the API han
 ## Features
 
 - **Tier menu** — one entry per "tier + codec"; pick H.264 for compatibility or HEVC / AV1 to save bandwidth
-- **Three download modes** — audio only (`.m4a` / `.mp3`), video only (`.mp4`), or video + audio merged into a single MP4
-- **Selectable merge method** (also governs mp3 transcoding) — pick auto (prefer FFmpeg, fall back) / FFmpeg only / in-browser only (never touches FFmpeg) from the panel
-- **Selectable audio format** — audio-only downloads can be `m4a` (saved as-is, fastest) or `mp3`
-  (192kbps). **A local FFmpeg is used automatically when present** (much faster, no page memory);
-  otherwise it transcodes in the browser with a built-in encoder: **nothing to install, no network**
+- **Three download modes** — audio only (`.m4a` / `.mp3` / `.wav`), video only (`.mp4`), or video + audio merged into a single MP4
+- **Selectable merge method** (also governs mp3 / wav transcoding) — pick auto (prefer FFmpeg, fall back) / FFmpeg only / in-browser only (never touches FFmpeg) from the panel
+- **Selectable audio format** — audio-only downloads can be `m4a` (saved as-is, fastest), `mp3`
+  (192kbps), or `wav` (16-bit PCM, maximum compatibility, larger files).
+  **A local FFmpeg is used automatically when present** (much faster, no page memory);
+  otherwise it transcodes in the browser after decoding: **nothing to install, no network**
 - **Lossless merge** — moves MP4 boxes and rewrites a 4-byte track_ID; **no re-encoding**, nothing is lost
 - **Pause / resume / cancel** — supported across all three download channels, and cancelling never retries
 - **Multi-part support** — detects the part you are watching and refreshes the tier list when you switch
+- **Download-path detection** — one click shows the native host's actual output folder and the
+  browser's most recent download location; the host follows a Windows "Downloads" folder even
+  after it has been moved to another drive
 - **Three fallback channels** — direct page fetch → background Service Worker → split downloads, with automatic backup-CDN retries
 - **Zero dependencies, no build step** — plain modern JavaScript; edit and reload the extension
 
@@ -312,7 +320,7 @@ release Firefox installs it directly.
 ### Optional: native FFmpeg (faster merging / transcoding)
 
 With it, merging runs through your local FFmpeg (faststart output, seekable while downloading) and
-mp3 transcoding gets much faster. Without it everything still works (in-browser remux / built-in encoder).
+mp3 / wav transcoding gets much faster. Without it everything still works (in-browser remux / built-in encoder).
 
 The host is a **separate one-time install** -- it is not inside the extension package (same is true
 for the Chrome edition):
@@ -355,7 +363,7 @@ See the `native-host/INSTRUCTION.txt` inside the host package for details and tr
 
 1. Open a video page and wait ~2s for the tier list (click **↻** if it does not show up)
 2. Optionally pick a quality / audio tier — the default is "best (auto)"
-3. Optionally pick an **audio format** (`m4a` or `mp3`); with mp3 the file is transcoded after downloading
+3. Optionally pick an **audio format** (`m4a`, `mp3` or `wav`); with mp3 / wav the file is transcoded after downloading
 4. Click **video + audio** and wait for the merge; a bottom-right notice shows where the file went
 5. Pause or cancel at any time
 
@@ -375,7 +383,7 @@ The panel's **merge method** dropdown can override this (default `auto`):
 
 - `auto (prefer FFmpeg)` -- falls back in the order above
 - `FFmpeg only` -- channel A alone; a missing host is reported instead of silently switching
-- `in-browser only (no FFmpeg)` -- channel B alone; mp3 transcoding also uses the built-in encoder only
+- `in-browser only (no FFmpeg)` -- channel B alone; mp3 / wav transcoding also uses the built-in encoder only
 
 ## Layout
 
@@ -386,6 +394,7 @@ background.js      Background Service Worker: fallback channel (header rewriting
 quality.js         Tier selection logic (ordering, codec detection)
 wbi.js             Bilibili WBI signature
 muxer.js           Fragmented-MP4 (fMP4) two-track remux
+wav.js             WAV (16-bit PCM) encoder
 vendor/            Third-party: lamejs (mp3 encoder, LGPL-3.0) plus its licence and provenance notes
 INSTRUCTION.txt    Full manual
 LICENSE            Full text of the GPL-3.0
@@ -415,9 +424,10 @@ More in section 8 of [`INSTRUCTION.txt`](INSTRUCTION.txt).
 - Only matches `https://www.bilibili.com/video/*` and `https://www.bilibili.com/festival/*`; no bangumi, live streams or paid courses
 - No batch / playlist / favourites downloading
 - High tiers and Dolby audio depend on your account entitlement (login / premium) — that is Bilibili's rule, not ours
-- mp3 is **transcoded locally** (Web Audio decode + lamejs encode) and relies on the browser's AAC
-  decoder. Long tracks take seconds to tens of seconds and hold some memory; keep `m4a` if you
-  want the untouched original or maximum speed
+- mp3 / wav are **transcoded locally** (Web Audio decode; mp3 then uses lamejs, wav writes PCM
+  directly) and rely on the browser's AAC decoder. Long tracks take seconds to tens of seconds and
+  hold some memory; wav is 16-bit PCM and roughly ten times the size of m4a. Keep `m4a` if you want
+  the untouched original or maximum speed
 
 ## License
 

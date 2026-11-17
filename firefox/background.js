@@ -195,6 +195,31 @@ if (chrome.downloads && chrome.downloads.onChanged) {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg && msg.type === 'last-download-path') {
+        // 浏览器下载目录没有直接的读取 API；用「最近一次完成的下载」反查实际路径。
+        // There is no direct API for the browser's download folder; use the last completed
+        // download to recover the actual path.
+        try {
+            chrome.downloads.search({ state: 'complete', limit: 1, orderBy: ['-startTime'] }, (items) => {
+                const err = chrome.runtime.lastError;
+                if (err) {
+                    sendResponse({ ok: false, error: err.message || String(err) });
+                    return;
+                }
+                const it = items && items[0];
+                sendResponse(it ? {
+                    ok: true,
+                    filename: it.filename || '',
+                    state: it.state || '',
+                    exists: !!it.exists
+                } : { ok: true, filename: '' });
+            });
+        } catch (e) {
+            sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });
+        }
+        return true;
+    }
+
     if (!msg || (msg.type !== 'save-blob' && msg.type !== 'save-blob-url')) {
         return undefined;   // 不处理的消息交还给其他监听器 / let other listeners have unrelated messages
     }
@@ -492,7 +517,8 @@ function nativeTranscode(msg, onProgress, onPort) {
             action: 'transcode',
             audioUrl: msg.audioUrl,
             filename: msg.filename,
-            bitrate: msg.bitrate || 192
+            bitrate: msg.bitrate || 192,
+            format: msg.format || 'mp3'
         });
     });
 }
@@ -569,6 +595,8 @@ chrome.runtime.onConnect.addListener((port) => {
                 ok: !!res.ok,
                 ffmpeg: res.ffmpeg || '',
                 version: res.version || '',
+                wav: !!res.wav,
+                outDir: res.outDir || '',
                 error: res.error || ''
             });
             return;

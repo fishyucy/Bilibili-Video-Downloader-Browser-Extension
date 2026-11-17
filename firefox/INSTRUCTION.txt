@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器（火狐版）· INSTRUCTION
-  版本 1.24.2   Firefox 扩展（Manifest V3）
+  版本 1.25.0   Firefox 扩展（Manifest V3）
 ================================================================
 
 
@@ -8,10 +8,11 @@
 
   打开 B 站视频页 / festival 活动页时，右下角会出现一个下载面板：
     · 列出这个视频真实可用的画质 / 音质档位，由你自己挑
-    · 三种下载方式：音频（.m4a 或 .mp3）、仅视频、视频+音频（自动合并成单个 MP4）
-    · 音频可转成 mp3：纯前端转码，不需要 ffmpeg，也不联网
+    · 三种下载方式：音频（.m4a / .mp3 / .wav）、仅视频、视频+音频（自动合并成单个 MP4）
+    · 音频可转成 mp3 或 wav：纯前端转码，不需要 ffmpeg，也不联网
     · 支持暂停 / 继续 / 取消
     · 自动识别当前正在播放的分P（多P视频不用手填）
+    · 可检测下载路径：一键查看宿主实际输出目录与浏览器最近一次下载位置
 
   和普通嗅探插件的区别：它不是猜一个最高清晰度就去下，
   而是把接口返回的档位全列出来（同一档位还会按 H.264 / HEVC / AV1 分开），
@@ -81,11 +82,12 @@
   ┌──────────────────────────┐
   │ 画质  [1080P · H.264 · 1.9M]   │  ← 下拉选择视频档位
   │ 音质  [192K · AAC · 192kbps]   │  ← 下拉选择音频档位
-  │ 格式  [m4a / mp3]              │  ← 音频格式，只影响「🎵 音频」
+  │ 格式  [m4a/mp3/wav]           │  ← 音频格式，只影响「🎵 音频」
   │ 合并  [自动/FFmpeg/浏览器内]   │  ← 合并方式，默认「自动」
   │ [↻ 读取可选档位]                │  ← 手动刷新档位列表
+  │ [📁 检测下载路径]              │  ← 查看下载位置
   ├──────────────────────────┤
-  │ [🎵 音频]                       │  ← 只下音轨（.m4a）
+  │ [🎵 音频]                       │  ← 只下音轨（.m4a / .mp3 / .wav）
   │ [🎬 仅视频]                     │  ← 只下画面（.mp4）
   │ [🎬🎵 视频+音频]                │  ← 自动合并成单个 MP4
   ├──────────────────────────┤
@@ -109,7 +111,7 @@
   2. （可选）在画质/音质下拉里选想要的档位
      不选就按「最高（自动）」——它按「档位优先、同档挑码率最高」来选
 
-  3. （可选）在「音频格式」下拉里选 m4a 或 mp3
+  3. （可选）在「音频格式」下拉里选 m4a、mp3 或 wav
      （这个选项只影响「🎵 音频」按钮，见下方说明）
 
   4. 点「🎬🎵 视频+音频」
@@ -126,15 +128,19 @@
   面板上的「音频格式」只影响「🎵 音频」这个按钮：
 
     m4a  直接把 B 站的原始音轨存下来：最快，音质与网页播放完全一致（默认）
-    mp3  转成 192kbps 的 mp3。自动在两条路里挑，你什么都不用设置（除非「合并方式」选了「仅浏览器内」或「仅 FFmpeg」，见第七节）：
+    mp3  转成 192kbps 的 mp3。
+    wav  转成 16-bit PCM 的 wav：兼容性最好，但文件很大（约为 m4a 的十倍）。
+
+    mp3 / wav 都会自动在两条路里挑，你什么都不用设置（除非「合并方式」选了「仅浏览器内」或「仅 FFmpeg」，见第七节）：
 
          · 本机装了 FFmpeg（见 native-host\INSTRUCTION.txt）
            → 交给 FFmpeg 转：快得多，页面也完全不占内存。
              装好宿主后，这里和「视频+音频」的合并都会自动走它。
+             （WAV 需要 1.25.0 或更新的 native-host；旧宿主会退回内置编码器。）
 
          · 没装 → 浏览器里自己转：
-           Web Audio 把 m4a（AAC）解码成 PCM，再用 lamejs（纯 JS）编码成 mp3。
-           不需要 ffmpeg、不需要 wasm、也不联网；
+           Web Audio 把 m4a（AAC）解码成 PCM；mp3 再用 lamejs（纯 JS）编码，
+           wav 直接写成 PCM。不需要 ffmpeg、不需要 wasm、也不联网；
            长音频要等几秒到几十秒，期间按钮显示「转码 xx%」。
 
   注意：合并下载（🎬🎵 视频+音频）始终使用原始 m4a，不受这个选项影响。
@@ -142,6 +148,20 @@
         把「音频格式」改回 m4a 即可正常下载。
         若本地 FFmpeg 转码中途失败（例如那份构建不带 mp3 编码器），
         也会自动退回内置编码器，不会让你白等。
+        wav 只存解码后的 PCM，不会再压缩；长音频请优先用 FFmpeg，
+        否则浏览器内存占用会明显上升。
+
+
+  ── 关于下载路径 ──
+
+  面板上的「📁 检测下载路径」会显示两行：
+
+    · 原生 FFmpeg 宿主：它实际会写入的目录
+    · 浏览器最近一次下载：浏览器保存上一个文件的绝对路径
+
+  原生宿主使用系统「下载」文件夹（Windows Known Folder）。即使你在资源管理器里
+  把「下载」移动到了别的盘，宿主也能找到新位置；也可以用环境变量 BILIDL_OUTDIR
+  强制指定别的目录。浏览器内通道始终跟随浏览器自己的下载设置。
 
 
 【五、档位对照表】
@@ -187,7 +207,7 @@
       多P视频  某视频_第3话_p3.mp4         某视频_第3话_p3.m4a
 
   三种下载对应的后缀：
-      音频            → .m4a
+      音频            → .m4a / .mp3 / .wav
       仅视频          → .mp4
       视频+音频       → .mp4
 
@@ -200,7 +220,11 @@
 
   保存位置：
       · 浏览器内通道   → 浏览器的默认下载目录（可在浏览器设置里改）
-      · 原生 FFmpeg 通道 → %USERPROFILE%\Downloads（系统的「下载」文件夹）
+      · 原生 FFmpeg 通道 → 系统「下载」文件夹（Windows Known Folder；
+                          移动到别的盘也能识别，也可用 BILIDL_OUTDIR 覆盖）
+
+  不确定文件会落在哪：点面板上的「📁 检测下载路径」，会显示宿主实际输出目录
+  和浏览器最近一次下载的完整路径。
 
   标题里的 Windows 非法字符（\ / : * ? " < > |）会被剔除，
   中文、空格、【】（）等全角符号都会保留，不影响可读性。
@@ -226,7 +250,7 @@
 
     「自动（FFmpeg 优先）」  按上面的顺序自动回退 —— 前一个失败才换下一个
     「仅 FFmpeg」           只用通道 A；没装宿主会直接报错提示，不会偷偷换通道
-    「仅浏览器内（不碰 FFmpeg）」 只用通道 B；mp3 转码也只用内置编码器
+    「仅浏览器内（不碰 FFmpeg）」 只用通道 B；mp3 / wav 转码也只用内置编码器
 
   下载单条流时也有兜底：页面直连失败会自动改用后台通道，
   并且会依次尝试 B 站接口一并返回的备用 CDN 地址（有几个试几个）。
@@ -329,8 +353,9 @@
         <a download> 会被浏览器拒绝；改用扩展的下载接口后，
         落盘不再受页面沙箱限制，文件名也由扩展准确指定。
 
-  注：mp3 转码完全在本地进行，用到的 lamejs 已经打包在扩展里
-      （vendor/lamejs.iife.js），不需要任何额外权限，也不会发起网络请求。
+  注：mp3 / wav 转码完全在本地进行。mp3 用的 lamejs 已经打包在扩展里
+      （vendor/lamejs.iife.js）；wav 只用浏览器解码 + 内置 PCM 写出。
+      两者都不需要任何额外权限，也不会发起网络请求。
 
     · host_permissions: *://*/*
         用于向 B 站 CDN 取流（CDN 域名是动态的）。
@@ -360,6 +385,7 @@
   quality.js        画质/音质选择逻辑（档位排序、编码识别）
   wbi.js            B 站 WBI 签名
   muxer.js          分片 MP4 重封装（浏览器内合并用）
+  wav.js            WAV（16-bit PCM）编码（wav 格式转码用）
   vendor/           第三方库：lamejs（mp3 编码，LGPL-3.0）
                     内含许可证全文与来源说明，见 vendor\README.txt
   native-host/      可选：原生 FFmpeg 合并宿主
@@ -373,7 +399,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader (Firefox edition) · INSTRUCTION
-  Version 1.24.2   Firefox extension (Manifest V3)
+  Version 1.25.0   Firefox extension (Manifest V3)
 ================================================================
 
 
@@ -381,10 +407,12 @@
 
   Opening a Bilibili video or festival page brings up a download panel in the bottom-right corner:
     · lists the quality / audio tiers this video really offers, for you to pick from
-    · three download modes: audio only (.m4a or .mp3), video only, video + audio (auto-merged into one MP4)
-    · audio can be transcoded to mp3 purely in the browser -- no ffmpeg, no network
+    · three download modes: audio only (.m4a / .mp3 / .wav), video only, video + audio (auto-merged into one MP4)
+    · audio can be transcoded to mp3 or wav purely in the browser -- no ffmpeg, no network
     · pause / resume / cancel
     · detects the part you are watching (no manual entry for multi-part videos)
+    · download-path detection: one click shows the host's actual output folder and the browser's
+      most recent download location
 
   Unlike a typical stream sniffer it does not just guess the highest resolution,
   it lists every tier the API returns (and splits one tier by H.264 / HEVC / AV1),
@@ -454,11 +482,12 @@
   ┌──────────────────────────┐
   │ Quality [1080P · H.264 · 1.9M]  │  <- pick the video tier
   │ Audio   [192K · AAC · 192kbps]  │  <- pick the audio tier
-  │ Format  [m4a / mp3]            │  <- audio format; affects "audio" only
+  │ Format  [m4a/mp3/wav]          │  <- audio format; affects "audio" only
   │ Merge   [auto / FFmpeg / mux]  │  <- how video+audio merge (default: auto)
   │ [↻ refresh tiers]              │  <- refresh the tier list manually
+  │ [📁 detect download path]      │  <- show host / browser download paths
   ├──────────────────────────┤
-  │ [🎵 audio]                     │  <- audio only (.m4a)
+  │ [🎵 audio]                     │  <- audio only (.m4a / .mp3 / .wav)
   │ [🎬 video only]                │  <- video only (.mp4)
   │ [🎬🎵 video + audio]           │  <- auto-merge into one MP4
   ├──────────────────────────┤
@@ -482,7 +511,7 @@
   2. (Optional) pick the tier you want from the quality / audio dropdowns
         Skip it and "best (auto)" applies: highest tier first, then highest bitrate within that tier
 
-  3. (Optional) pick an audio format (m4a or mp3)
+  3. (Optional) pick an audio format (m4a, mp3 or wav)
         (this only affects the "🎵 audio" button -- see below)
 
   4. Click "🎬🎵 video + audio"
@@ -500,15 +529,21 @@
   The "Format" dropdown only affects the "🎵 audio" button:
 
     m4a  saves Bilibili's original audio track as-is: fastest, bit-identical to web playback (default)
-    mp3  transcodes to 192kbps mp3. It picks between two routes automatically -- nothing to set (unless the "merge method" is "in-browser only" or "FFmpeg only"; see section 7):
+    mp3  transcodes to 192kbps mp3.
+    wav  transcodes to 16-bit PCM wav: maximum compatibility, but much larger (about ten times
+         the size of m4a).
+
+    mp3 / wav pick between two routes automatically -- nothing to set (unless the "merge method"
+    is "in-browser only" or "FFmpeg only"; see section 7):
 
          · A local FFmpeg is installed (see native-host\INSTRUCTION.txt)
            -> hand it over: much faster, and the page holds nothing in memory.
               Once the host is installed, both this and the video+audio merge use it.
+              (WAV needs native-host 1.25.0 or newer; an older host falls back to the built-in encoder.)
 
          · Not installed -> transcode in the browser:
-           Web Audio decodes the m4a (AAC) into PCM, then lamejs (pure JS) encodes mp3.
-           No ffmpeg, no wasm, no network;
+           Web Audio decodes the m4a (AAC) into PCM; mp3 then uses lamejs (pure JS),
+           wav is written directly as PCM. No ffmpeg, no wasm, no network;
            long tracks take seconds to tens of seconds and the button shows "transcoding xx%".
 
   Note: the merge flow (🎬🎵 video + audio) always uses the original m4a and ignores this
@@ -516,6 +551,20 @@
         get an explicit message -- switch the format back to m4a and it downloads fine.
         If a local FFmpeg transcode fails midway (say that build lacks the mp3 encoder) it
         falls back to the built-in encoder automatically, so the wait is never wasted.
+        wav stores decoded PCM without further compression; for long tracks prefer FFmpeg,
+        otherwise browser memory use rises noticeably.
+
+
+  -- About download paths --
+
+  The "📁 detect download path" button shows two lines:
+    · native FFmpeg host: the folder it will actually write to
+    · browser's most recent download: the absolute path of the last file the browser saved
+
+  The native host uses the system Downloads folder (Windows Known Folder). If you moved
+  "Downloads" to another drive in Explorer, the host still finds the new location; you can
+  also set BILIDL_OUTDIR to force a different folder. The in-browser channel always follows
+  the browser's own download settings.
 
 
 【5. Tier reference】
@@ -562,7 +611,7 @@
       multi part    Some Show_Episode 3_p3.mp4 Some Show_Episode 3_p3.m4a
 
   Extension by download kind:
-      audio            -> .m4a
+      audio            -> .m4a / .mp3 / .wav
       video only       -> .mp4
       video + audio    -> .mp4
 
@@ -578,7 +627,11 @@
 
   Save location:
       · in-browser channel  -> your browser's default download folder (configurable in browser settings)
-      · native FFmpeg channel -> %USERPROFILE%\Downloads (your system Downloads folder)
+      · native FFmpeg channel -> the system Downloads folder (Windows Known Folder; a relocated
+        folder is detected too, and BILIDL_OUTDIR can override it)
+
+  Not sure where a file will land? Click "📁 detect download path" in the panel: it shows the
+  host's actual output folder and the absolute path of the browser's most recent download.
 
   Characters Windows forbids (\ / : * ? " < > |) are stripped from titles,
   while CJK, spaces and full-width punctuation such as 【】（） are kept, so titles stay readable.
@@ -605,7 +658,7 @@
 
     "auto (prefer FFmpeg)"    falls back in the order above -- the next channel runs only when one fails
     "FFmpeg only"             channel A alone; a missing host is reported instead of silently switching
-    "in-browser only (no FFmpeg)"  channel B alone; mp3 also uses the built-in encoder only
+    "in-browser only (no FFmpeg)"  channel B alone; mp3 / wav also use the built-in encoder only
 
   Single streams fall back too: if the direct page fetch fails it switches to the background channel,
   and it tries every backup CDN address the API returned alongside (as many as there are).
@@ -715,9 +768,9 @@
           extension download API lifts the save out of the page sandbox and pins down
           the filename exactly.
 
-  Note: mp3 transcoding happens entirely locally. The lamejs encoder it uses ships inside
-        the extension (vendor/lamejs.iife.js); it needs no extra permission and makes no
-        network requests.
+  Note: mp3 / wav transcoding happens entirely locally. The lamejs encoder used by mp3 ships
+        inside the extension (vendor/lamejs.iife.js); wav only uses the browser decoder plus
+        the built-in PCM writer. Neither needs extra permissions or makes network requests.
 
     · host_permissions: *://*/*
           Used to fetch streams from the Bilibili CDNs (whose hostnames are dynamic).
@@ -748,6 +801,7 @@
   quality.js        tier selection logic (ordering, codec detection)
   wbi.js            Bilibili WBI signature
   muxer.js          fragmented-MP4 remux (used for in-browser merging)
+  wav.js            WAV (16-bit PCM) encoder (used for wav transcoding)
   vendor/           third-party: lamejs (mp3 encoder, LGPL-3.0)
                     with its full licence and provenance notes, see vendor\README.txt
   native-host/      optional: native FFmpeg merge host

@@ -308,8 +308,13 @@
                 res = await fetch(`https://api.bilibili.com/x/player/wbi/playurl?${query}`, {
                     credentials: 'include'
                 }).then(r => r.json());
-                if (!res || res.code !== 0) {
-                    console.warn(`[bili-dl] wbi 接口返回 ${res && res.code} ${res && res.message}，改用旧接口`);
+                // 匿名请求有时 code=0 却只给 v_voucher（风控凭证）而没有 dash；
+                // 这种情况必须当失败处理，否则会误报「该视频没有 DASH 流」。
+                // Anonymous requests sometimes return code=0 with only v_voucher (risk control)
+                // and no dash; treat that as a failure instead of reporting "no DASH stream".
+                if (!res || res.code !== 0 || !(res.data && res.data.dash)) {
+                    console.warn(`[bili-dl] wbi 接口返回 ${res && res.code} ${res && res.message}` +
+                        `${res && res.data && !res.data.dash ? '（无 dash，可能触发风控）' : ''}，改用旧接口`);
                     res = null;
                 }
             } catch (e) {
@@ -949,6 +954,14 @@
     const MP3_BITRATE = 192;   // kbps；B 站音频源多为 192K，转码取同档 / kbps; Bilibili audio is usually 192K, so match it
     const MP3_BLOCK = 1152;    // lamejs 的标准帧长 / lamejs's standard frame length
 
+    // 转码提示文案（mp3 / wav 共用）
+    // Transcode note shared by mp3 / wav
+    function transcodeNote(format) {
+        return format === 'wav'
+            ? 'm4a → wav（PCM 16-bit，文件较大）'
+            : `m4a → mp3 ${MP3_BITRATE}kbps`;
+    }
+
     // 只转当前这一块，避免一次性把整段 PCM 再复制成 int16（长音频能省一半内存）
     // Convert just the current block, instead of materialising the whole PCM as int16 up
     // front (halves the memory for long tracks)
@@ -959,6 +972,31 @@
             out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
         }
         return out;
+    }
+
+    // 解码 m4a 成 AudioBuffer：mp3 和 wav 两条路共用
+    // Decode the m4a into an AudioBuffer; shared by the mp3 and wav paths
+    async function decodeAudioBlob(blob) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) throw new Error('该浏览器不支持 Web Audio，无法转码；请改用 m4a 格式');
+
+        const ctx = new Ctx();
+        let audioBuffer;
+        try {
+            const raw = await blob.arrayBuffer();
+            // 传副本：部分实现会 detach 掉原 buffer
+            // Pass a copy: some implementations detach the original buffer
+            audioBuffer = await ctx.decodeAudioData(raw.slice(0));
+        } catch (e) {
+            throw new Error('无法解码该音频（浏览器缺少 AAC 解码器？）。把「音频格式」改回 m4a 即可正常下载。\n' +
+                (e && e.message ? e.message : e));
+        } finally {
+            try { ctx.close(); } catch (e) { /* ignore */ }
+        }
+
+        if (dlControl.cancelled) throw cancelledError();
+        if (!audioBuffer || !audioBuffer.length) throw new Error('解码后没有音频数据');
+        return audioBuffer;
     }
 
     async function blobToMp3(blob, onProgress) {
@@ -978,30 +1016,10 @@
             throw new Error('mp3 编码器未加载，请确认 vendor/lamejs.iife.js 存在并重新加载扩展');
         }
 
-        const Ctx = window.AudioContext || window.webkitAudioContext;
-        if (!Ctx) throw new Error('该浏览器不支持 Web Audio，无法转码；请改用 m4a 格式');
+        const audioBuffer = await decodeAudioBlob(blob);
 
-        // ---- 1) 解码 m4a ----
-        // ---- 1) Decode the m4a ----
-        const ctx = new Ctx();
-        let audioBuffer;
-        try {
-            const raw = await blob.arrayBuffer();
-            // 传副本：部分实现会 detach 掉原 buffer
-            // Pass a copy: some implementations detach the original buffer
-            audioBuffer = await ctx.decodeAudioData(raw.slice(0));
-        } catch (e) {
-            throw new Error('无法解码该音频（浏览器缺少 AAC 解码器？）。把「音频格式」改回 m4a 即可正常下载。\n' +
-                (e && e.message ? e.message : e));
-        } finally {
-            try { ctx.close(); } catch (e) { /* ignore */ }
-        }
-
-        if (dlControl.cancelled) throw cancelledError();
-        if (!audioBuffer || !audioBuffer.length) throw new Error('解码后没有音频数据');
-
-        // ---- 2) 编码 mp3 ----
-        // ---- 2) Encode to mp3 ----
+        // ---- 编码 mp3 ----
+        // ---- Encode to mp3 ----
         const channels = Math.min(audioBuffer.numberOfChannels, 2);
         const sampleRate = audioBuffer.sampleRate;
         const frames = audioBuffer.length;
@@ -1047,6 +1065,21 @@
         return new Blob(parts, { type: 'audio/mpeg' });
     }
 
+    // m4a → 16-bit PCM WAV：解码后直接写 RIFF/WAVE，不再二次压缩
+    // m4a -> 16-bit PCM WAV: write RIFF/WAVE straight from the decoded PCM, no second compression
+    async function blobToWav(blob, onProgress) {
+        const Wav = window.BiliWav;
+        if (!Wav) throw new Error('WAV 编码组件未加载（wav.js），请重新加载扩展');
+
+        const audioBuffer = await decodeAudioBlob(blob);
+        console.log(`[bili-dl] 开始 WAV 转码：${Math.min(audioBuffer.numberOfChannels, 2)} 声道 / ` +
+            `${audioBuffer.sampleRate}Hz / ${(audioBuffer.length / audioBuffer.sampleRate).toFixed(1)} 秒`);
+
+        const out = await Wav.encode(audioBuffer, onProgress, () => dlControl.cancelled);
+        console.log(`[bili-dl] WAV 转码完成：${(out.size / 1048576).toFixed(1)} MB`);
+        return out;
+    }
+
     // ===================== 清晰度 / 音质菜单 =====================
     // ===================== Quality / audio menu =====================
     // 菜单里的每个选项对应「档位 id + 编码」的组合：同一档位 B 站会同时给
@@ -1082,8 +1115,9 @@
 
     function currentAudioFormat() {
         const el = document.getElementById('bili-dl-afmt');
-        if (el && (el.value === 'mp3' || el.value === 'm4a')) return el.value;
-        return loadPrefs().af === 'mp3' ? 'mp3' : 'm4a';
+        if (el && (el.value === 'mp3' || el.value === 'm4a' || el.value === 'wav')) return el.value;
+        const saved = loadPrefs().af;
+        return (saved === 'mp3' || saved === 'wav') ? saved : 'm4a';
     }
 
     // 合并方式（面板「合并方式」下拉）：默认 auto（FFmpeg 优先，失败自动回退浏览器内）
@@ -1244,6 +1278,52 @@
         }
     }
 
+    // 检测下载路径：原生宿主报它实际会写的目录；浏览器侧用最近一次完成的下载反查。
+    // Detect download paths: the native host reports its actual output folder; the browser side
+    // is inferred from the most recent completed download.
+    async function detectDownloadPath(btn) {
+        if (btn) { btn.textContent = '检测中…'; btn.disabled = true; }
+        try {
+            const probe = await nativeAvailable(true);
+            const last = await new Promise((resolve) => {
+                if (!chrome.runtime || !chrome.runtime.id) { resolve(null); return; }
+                try {
+                    chrome.runtime.sendMessage({ type: 'last-download-path' }, (resp) => {
+                        void (chrome.runtime && chrome.runtime.lastError);
+                        resolve(resp || null);
+                    });
+                } catch (e) { resolve(null); }
+            });
+
+            let hostLine;
+            if (probe && probe.ok && probe.outDir) {
+                hostLine = '原生 FFmpeg 宿主：' + probe.outDir;
+            } else if (probe && probe.ok) {
+                hostLine = '原生 FFmpeg 宿主：已安装，但版本较旧、未返回路径';
+            } else {
+                hostLine = '原生 FFmpeg 宿主：未检测到（不影响浏览器内下载）';
+            }
+
+            let browserLine;
+            if (last && last.ok && last.filename) {
+                browserLine = '浏览器最近一次下载：' + last.filename +
+                    (last.exists === false ? '（该文件已不在原处）' : '');
+            } else if (last && last.ok) {
+                browserLine = '浏览器最近一次下载：还没有已完成的下载记录';
+            } else {
+                browserLine = '浏览器最近一次下载：读取失败' +
+                    (last && last.error ? '（' + last.error + '）' : '');
+            }
+
+            notify('📁 下载路径检测\n\n' + hostLine + '\n' + browserLine +
+                '\n\n说明：浏览器内保存跟随浏览器设置；原生宿主跟随系统「下载」文件夹（已被移动也能识别）。');
+        } catch (e) {
+            notify('检测下载路径失败: ' + (e && e.message ? e.message : e));
+        } finally {
+            if (btn) { btn.textContent = '📁 检测下载路径'; btn.disabled = false; }
+        }
+    }
+
     // ===================== 原生 FFmpeg 合并（Native Messaging） =====================
     // ===================== Native FFmpeg merge (Native Messaging) =====================
     // 走本地宿主进程：按防盗链要求下载两条流 → ffmpeg -c copy 无损封装成单个 MP4。
@@ -1338,12 +1418,12 @@
         });
     }
 
-    // 让原生宿主自己下载并转码成 mp3，返回它写出的文件信息。
-    // Ask the native host to download and transcode to mp3; resolves with the file it wrote.
+    // 让原生宿主自己下载并转码（mp3 / wav），返回它写出的文件信息。
+    // Ask the native host to download and transcode (mp3 / wav); resolves with the file it wrote.
     // 好处：宿主直接用 ffmpeg，比内置 JS 编码器快得多，页面也不必缓存整个音频。
     // Why: the host uses ffmpeg directly -- far faster than the built-in JS encoder, and the
     // page never has to buffer the whole audio.
-    function nativeTranscodeFile(audioUrl, filename, bitrate, onProgress) {
+    function nativeTranscodeFile(audioUrl, filename, bitrate, onProgress, format) {
         return new Promise((resolve, reject) => {
             let port;
             try { port = chrome.runtime.connect({ name: 'bili-dl' }); }
@@ -1377,7 +1457,7 @@
                     ? cancelledError()
                     : new Error(err && err.message ? err.message : '原生宿主连接中断'));
             });
-            port.postMessage({ type: 'nativeTranscode', audioUrl, filename, bitrate });
+            port.postMessage({ type: 'nativeTranscode', audioUrl, filename, bitrate, format });
         });
     }
 
@@ -1385,7 +1465,7 @@
     // B 站的主地址偶尔连不上、备用地址却是通的 —— 页面直连那条路也是这么退避的。
     // The host accepts a single URL, so try the backup addresses here. Bilibili's primary address
     // is occasionally unreachable while a backup works -- the same fallback the page path uses.
-    async function nativeTranscodeAny(urls, filename, bitrate, onProgress) {
+    async function nativeTranscodeAny(urls, filename, bitrate, onProgress, format) {
         const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);
         if (!list.length) throw new Error('没有可用的音频地址');
 
@@ -1393,7 +1473,7 @@
         for (let i = 0; i < list.length; i++) {
             try {
                 if (i > 0) console.warn(`[bili-dl] FFmpeg 转码改用备用地址 ${i}/${list.length - 1}`);
-                return await nativeTranscodeFile(list[i], filename, bitrate, onProgress);
+                return await nativeTranscodeFile(list[i], filename, bitrate, onProgress, format);
             } catch (e) {
                 if (isCancelled(e)) throw e;
                 lastErr = e;
@@ -1556,36 +1636,44 @@
             const audio = getBestAudioStream(dash);
             if (!audio) throw new Error('该视频没有独立的音频流');
 
-            const wantMp3 = currentAudioFormat() === 'mp3';
-            // 「合并方式」同样约束 mp3 转码：仅浏览器内 = 只用内置编码器；仅 FFmpeg = 只用宿主
-            // The merge-method setting also governs the mp3 transcode: "in-browser only" uses the
-            // built-in encoder; "FFmpeg only" insists on the host.
+            const format = currentAudioFormat();               // 'm4a' | 'mp3' | 'wav'
+            const wantTranscode = format !== 'm4a';
+            // 「合并方式」同样约束 mp3 / wav 转码：仅浏览器内 = 只用内置编码器；仅 FFmpeg = 只用宿主
+            // The merge-method setting also governs mp3 / wav transcoding: "in-browser only" uses
+            // the built-in encoder; "FFmpeg only" insists on the host.
             const method = currentMergeMethod();
-            if (wantMp3 && method === 'mux') {
-                // 选了「仅浏览器内」：mp3 一律用内置编码器，不探测也不调用 FFmpeg
-                // "In-browser only": mp3 always uses the built-in encoder; FFmpeg is never touched
-                console.log('[bili-dl] 合并方式为「仅浏览器内」，mp3 转码使用内置编码器（不碰 FFmpeg）');
+            if (wantTranscode && method === 'mux') {
+                // 选了「仅浏览器内」：mp3 / wav 一律用内置编码器，不探测也不调用 FFmpeg
+                // "In-browser only": mp3 / wav always uses the built-in encoder; FFmpeg is never touched
+                console.log('[bili-dl] 合并方式为「仅浏览器内」，' + format + ' 转码使用内置编码器（不碰 FFmpeg）');
             }
 
-            // mp3、本机有 ffmpeg、且没有选「仅浏览器内」时，直接交给宿主下载 + 转码：
+            // mp3 / wav、本机有 ffmpeg、且没有选「仅浏览器内」时，直接交给宿主下载 + 转码：
             // 既不用把整个音频读进页面内存，也比内置 JS 编码器快得多。
-            // With mp3, a local ffmpeg and method != "in-browser only", hand it to the host to
+            // With mp3 / wav, a local ffmpeg and method != "in-browser only", hand it to the host to
             // download and transcode: the page never buffers the audio and it is far faster than
             // the built-in JS encoder.
-            if (wantMp3 && method !== 'mux') {
-                const probe = await nativeAvailable();
-                if (probe && probe.ok) {
+            if (wantTranscode && method !== 'mux') {
+                // WAV 能力只存在于新版宿主；旧宿主会忽略 format 而按 mp3 输出，所以先看 ping 的 wav 标记
+                // WAV support only exists in newer hosts; an old host ignores format and emits mp3, so check the ping flag
+                const probe = await nativeAvailable(format === 'wav' && nativeProbeCache && !nativeProbeCache.wav);
+                if (probe && probe.ok && format === 'wav' && !probe.wav) {
+                    if (method === 'ffmpeg') {
+                        throw new Error('原生宿主版本过旧，不支持 WAV 转码。\n请重新安装 native-host（1.25.0 或更新），或把「合并方式」改为「自动 / 仅浏览器内」。');
+                    }
+                    console.log('[bili-dl] 原生宿主不支持 WAV，改用内置编码器');
+                } else if (probe && probe.ok) {
                     try {
                         btn.textContent = 'FFmpeg 转码中…';
-                        const mp3Name = outputName(info, 'mp3');
+                        const outName = outputName(info, format);
                         // 传整个地址列表，主地址连不上会自动换备用
                         // Pass the whole list; a dead primary address falls through automatically
-                        const res = await nativeTranscodeAny(audio.urls, mp3Name, MP3_BITRATE, (m) => {
+                        const res = await nativeTranscodeAny(audio.urls, outName, MP3_BITRATE, (m) => {
                             btn.textContent = (m.label || '转码') + ' ' + m.percent + '%';
-                        });
+                        }, format);
                         const aq = qualityLabel(AUDIO_QUALITY_NAMES, audio.quality);
-                        console.log(`✅ 已下载 P${info.p}/${info.total}: ${mp3Name}（本地 FFmpeg）`);
-                        notify(`✅ 音频下载完成！（本地 FFmpeg 转码）\n当前分P: P${info.p}/${info.total}\n音质: ${aq} ${codecFamily(audio.codecs)} ${kbps(audio.bandwidth)}\n转码: m4a → mp3 ${MP3_BITRATE}kbps\n\n文件：${res.output}`);
+                        console.log(`✅ 已下载 P${info.p}/${info.total}: ${outName}（本地 FFmpeg）`);
+                        notify(`✅ 音频下载完成！（本地 FFmpeg 转码）\n当前分P: P${info.p}/${info.total}\n音质: ${aq} ${codecFamily(audio.codecs)} ${kbps(audio.bandwidth)}\n转码: ${transcodeNote(format)}\n\n文件：${res.output}`);
                         return;
                     } catch (e) {
                         if (isCancelled(e)) throw e;
@@ -1606,7 +1694,7 @@
                 }
             }
 
-            // 无论哪种格式都得先取到原始 m4a：m4a 直接落盘，mp3 再解码重编码
+            // 无论哪种格式都得先取到原始 m4a：m4a 直接落盘，mp3 / wav 再解码重编码
             // Either way the raw m4a must be fetched first: saved as-is, or decoded and re-encoded
             btn.textContent = '下载音频…';
             const srcName = outputName(info, 'm4a');
@@ -1617,10 +1705,12 @@
             let filename = srcName;
             let outBlob = srcBlob;
 
-            if (wantMp3) {
+            if (wantTranscode) {
                 btn.textContent = '转码中…';
-                outBlob = await blobToMp3(srcBlob, (pct) => { btn.textContent = `转码 ${pct}%`; });
-                filename = outputName(info, 'mp3');
+                outBlob = format === 'wav'
+                    ? await blobToWav(srcBlob, (pct) => { btn.textContent = `转码 ${pct}%`; })
+                    : await blobToMp3(srcBlob, (pct) => { btn.textContent = `转码 ${pct}%`; });
+                filename = outputName(info, format);
             }
 
             await saveBlob(outBlob, filename);
@@ -1628,7 +1718,7 @@
             const aq = qualityLabel(AUDIO_QUALITY_NAMES, audio.quality);
             console.log(`✅ 已下载 P${info.p}/${info.total}: ${filename}`);
             notify(`✅ 音频下载完成！\n当前分P: P${info.p}/${info.total}\n音质: ${aq} ${codecFamily(audio.codecs)} ${kbps(audio.bandwidth)}` +
-                (wantMp3 ? `\n转码: m4a → mp3 ${MP3_BITRATE}kbps` : ''));
+                (wantTranscode ? `\n转码: ${transcodeNote(format)}` : ''));
         } catch (err) {
             if (isCancelled(err)) { console.log('[bili-dl] 音频下载已取消'); return; }
             console.error(err);
@@ -1863,14 +1953,15 @@
         const afmtSel = document.createElement('select');
         afmtSel.id = 'bili-dl-afmt';
         Object.assign(afmtSel.style, selectStyle);
-        [['m4a', 'm4a（原声，最快）'], ['mp3', 'mp3（转码，稍慢）']].forEach(([v, t]) => {
+        [['m4a', 'm4a（原声，最快）'], ['mp3', 'mp3（转码，稍慢）'], ['wav', 'wav（PCM，文件大）']].forEach(([v, t]) => {
             const o = document.createElement('option');
             o.value = v;
             o.textContent = t;
             styleOption(o);
             afmtSel.appendChild(o);
         });
-        afmtSel.value = loadPrefs().af === 'mp3' ? 'mp3' : 'm4a';
+        const savedAf = loadPrefs().af;
+        afmtSel.value = (savedAf === 'mp3' || savedAf === 'wav') ? savedAf : 'm4a';
         afmtSel.onchange = () => {
             saveAudioFormat(afmtSel.value);
             const shown = afmtSel.options[afmtSel.selectedIndex];
@@ -1917,6 +2008,18 @@
         });
         refreshBtn.onclick = () => refreshStreamMenu(refreshBtn);
         menu.appendChild(refreshBtn);
+
+        const pathBtn = document.createElement('button');
+        pathBtn.id = 'bili-dl-path';
+        pathBtn.textContent = '📁 检测下载路径';
+        Object.assign(pathBtn.style, {
+            backgroundColor: 'rgba(255,255,255,.10)', color: '#fff',
+            border: '1px solid rgba(255,255,255,.25)', borderRadius: '5px',
+            padding: '3px 8px', cursor: 'pointer', fontSize: '9.5px', fontWeight: '600',
+            marginTop: '3px', width: '100%'
+        });
+        pathBtn.onclick = () => detectDownloadPath(pathBtn);
+        menu.appendChild(pathBtn);
 
         btnWrap.appendChild(menu);
 

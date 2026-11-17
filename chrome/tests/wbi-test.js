@@ -93,10 +93,14 @@ check('从 img_url/sub_url 提取结果一致', fromUrls === EXPECT_MIXIN);
         log('  带签名 HTTP 结果: code=' + signed.code + ' message=' + signed.message);
         check('wbi 接口接受签名（code=0）', signed.code === 0, 'code=' + signed.code + ' ' + signed.message);
         const dash = signed.data && signed.data.dash;
-        check('返回了 dash 流', !!dash);
+        const voucher = signed.data && signed.data.v_voucher;
+        check('返回 dash，或明确返回风控凭证 v_voucher', !!dash || !!voucher,
+            dash ? 'dash' : (voucher ? 'v_voucher' : 'none'));
         if (dash) {
             log('  视频档位: ' + (dash.video || []).map(s => s.id + '/' + s.width + 'x' + s.height + '/' + (s.codecs || '').split('.')[0]).join(' '));
             log('  音频档位: ' + (dash.audio || []).map(s => s.id + '/' + (s.codecs || '').split('.')[0]).join(' '));
+        } else if (voucher) {
+            log('  WBI 触发风控（v_voucher），扩展会自动回退旧接口');
         }
 
         // 对比不带签名的旧接口（签名错误时服务端会返回非 0）
@@ -114,6 +118,7 @@ check('从 img_url/sub_url 提取结果一致', fromUrls === EXPECT_MIXIN);
         const plain = await (await fetch(`https://api.bilibili.com/x/player/playurl?bvid=${bvid}&cid=${cid}&qn=127&fnval=4048&fnver=0&fourk=1`, { headers: HEADERS })).json();
         const pd = plain.data && plain.data.dash;
         log('  旧接口(无签名) code=' + plain.code + ' 视频档位: ' + (pd ? (pd.video || []).map(s => s.id).join(',') : '-'));
+        check('旧接口仍返回 dash（扩展的回退路径可用）', !!pd);
     } catch (e) {
         log('  异常: ' + (e && e.stack ? e.stack : e));
         check('真实调用未抛异常', false, e && e.message);
