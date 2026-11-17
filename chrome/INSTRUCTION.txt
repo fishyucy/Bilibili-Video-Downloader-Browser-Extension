@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器 · INSTRUCTION
-  版本 1.25.0   Chrome / Edge 扩展（Manifest V3）
+  版本 1.26.0   Chrome / Edge 扩展（Manifest V3）
 ================================================================
 
 
@@ -13,6 +13,8 @@
     · 支持暂停 / 继续 / 取消
     · 自动识别当前正在播放的分P（多P视频不用手填）
     · 可检测下载路径：一键查看宿主实际输出目录与浏览器最近一次下载位置
+    · 自动检测更新；发现新版本可按当前浏览器下载、去 Release 页面或跳过此版本
+    · 未安装 native-host 时，面板会显示下载入口（可关闭）
 
   和普通嗅探插件的区别：它不是猜一个最高清晰度就去下，
   而是把接口返回的档位全列出来（同一档位还会按 H.264 / HEVC / AV1 分开），
@@ -43,6 +45,7 @@
   │ 合并  [自动/FFmpeg/浏览器内]   │  ← 合并方式，默认「自动」
   │ [↻ 读取可选档位]                │  ← 手动刷新档位列表
   │ [📁 检测下载路径]              │  ← 查看下载位置
+  │ [⬇ 下载 FFmpeg 宿主] [✕]      │  ← 未安装宿主时出现，可关闭
   ├──────────────────────────┤
   │ [🎵 音频]                       │  ← 只下音轨（.m4a / .mp3 / .wav）
   │ [🎬 仅视频]                     │  ← 只下画面（.mp4）
@@ -119,6 +122,33 @@
   原生宿主使用系统「下载」文件夹（Windows Known Folder）。即使你在资源管理器里
   把「下载」移动到了别的盘，宿主也能找到新位置；也可以用环境变量 BILIDL_OUTDIR
   强制指定别的目录。浏览器内通道始终跟随浏览器自己的下载设置。
+
+
+  ── 关于更新提醒 ──
+
+  每次打开 B 站视频页 / 活动页，扩展会在约 5 秒后读取 GitHub 最新正式版
+  （只读取公开 Release 信息，不上传任何数据）。发现新版本时弹出提示：
+
+    · 下载 <当前浏览器> 版：按当前浏览器下载对应安装包
+      （Chromium 系 → zip；Firefox → 已签名 xpi）
+    · 去官网下载：打开 GitHub Release 页面
+    · 这个版本先不更新：记住 vX.Y.Z，发布下一个版本前不再提醒
+    · 本次不更新：只在当前页面关闭，下次打开会再次检查
+
+  「这个版本先不更新」会在站点本地存储里记录一个版本号
+  （localStorage: bili-dl:update-skip），其他检查不做缓存。
+  想恢复提醒：清除该键或站点数据。
+
+
+  ── 关于 native-host 提示 ──
+
+  如果没检测到 native-host，面板会多出「⬇ 下载 FFmpeg 宿主」和 ✕：
+
+    · 点下载：按当前浏览器下载对应的 native-host 包（zip）
+      解压后运行 build-host.cmd → install.cmd，再刷新页面
+    · 点 ✕：关闭本次提示；下次打开页面若仍未安装，会再次出现
+
+  这是可选的加速组件，不装也能用浏览器内重封装 / 内置编码器。
 
 
 【五、档位对照表】
@@ -317,6 +347,8 @@
     · host_permissions: *://*/*
         用于向 B 站 CDN 取流（CDN 域名是动态的）。
         代码实际只请求 bilibili 相关域名，不会访问其它网站。
+        更新检测也会读取 GitHub 公开 Release 信息（api.github.com），
+        只用于比较版本号，不上传任何数据。
 
 
 【十、日志与排错】
@@ -341,6 +373,7 @@
   wbi.js            B 站 WBI 签名
   muxer.js          分片 MP4 重封装（浏览器内合并用）
   wav.js            WAV（16-bit PCM）编码（wav 格式转码用）
+  update.js         更新检测与版本比较（纯逻辑）
   vendor/           第三方库：lamejs（mp3 编码，LGPL-3.0）
                     内含许可证全文与来源说明，见 vendor\README.txt
   native-host/      可选：原生 FFmpeg 合并宿主
@@ -354,7 +387,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader · INSTRUCTION
-  Version 1.25.0   Chrome / Edge extension (Manifest V3)
+  Version 1.26.0   Chrome / Edge extension (Manifest V3)
 ================================================================
 
 
@@ -368,6 +401,9 @@
     · detects the part you are watching (no manual entry for multi-part videos)
     · download-path detection: one click shows the host's actual output folder and the browser's
       most recent download location
+    · update reminder: checks the latest GitHub release; you can download the build for the
+      current browser, open the release page, or skip that version
+    · when no native host is installed, the panel shows a download entry (closable)
 
   Unlike a typical stream sniffer it does not just guess the highest resolution,
   it lists every tier the API returns (and splits one tier by H.264 / HEVC / AV1),
@@ -398,6 +434,7 @@
   │ Merge   [auto / FFmpeg / mux]  │  <- how video+audio merge (default: auto)
   │ [↻ refresh tiers]              │  <- refresh the tier list manually
   │ [📁 detect download path]      │  <- show host / browser download paths
+  │ [⬇ download FFmpeg host] [✕]  │  <- when no host is installed; closable
   ├──────────────────────────┤
   │ [🎵 audio]                     │  <- audio only (.m4a / .mp3 / .wav)
   │ [🎬 video only]                │  <- video only (.mp4)
@@ -477,6 +514,35 @@
   "Downloads" to another drive in Explorer, the host still finds the new location; you can
   also set BILIDL_OUTDIR to force a different folder. The in-browser channel always follows
   the browser's own download settings.
+
+
+  -- About the update reminder --
+
+  On every Bilibili video / festival page, the extension reads the latest GitHub release
+  after about 5 seconds (public release metadata only; no data is uploaded). When a newer
+  version exists it shows a prompt:
+
+    · Download <current browser> build: downloads the package for the current browser
+      (Chromium -> zip; Firefox -> signed xpi)
+    · Open release page: opens the GitHub Release page
+    · Skip this version: remembers vX.Y.Z and stops prompting until the next version
+    · Not this time: closes only for the current page; the next page checks again
+
+  "Skip this version" stores one version string in site localStorage
+  (bili-dl:update-skip); no other update-check caching is used.
+  To restore reminders, clear that key or the site data.
+
+
+  -- About the native-host hint --
+
+  If no native host is detected, the panel adds "⬇ download FFmpeg host" and ✕:
+
+    · Download: fetches the native-host package for the current browser (zip);
+      unzip, run build-host.cmd then install.cmd, and reload the page
+    · ✕: closes the hint for the current page; it reappears on the next page if the host
+      is still missing
+
+  The host is optional; without it the in-browser remux / built-in encoder still works.
 
 
 【5. Tier reference】
@@ -686,6 +752,8 @@
     · host_permissions: *://*/*
           Used to fetch streams from the Bilibili CDNs (whose hostnames are dynamic).
           The code only ever requests bilibili-related hosts and touches no other site.
+          Update checking also reads public GitHub release metadata (api.github.com),
+          only to compare version numbers; no data is uploaded.
 
 
 【10. Logs and troubleshooting】
@@ -710,6 +778,7 @@
   wbi.js            Bilibili WBI signature
   muxer.js          fragmented-MP4 remux (used for in-browser merging)
   wav.js            WAV (16-bit PCM) encoder (used for wav transcoding)
+  update.js         update check / version compare (pure logic)
   vendor/           third-party: lamejs (mp3 encoder, LGPL-3.0)
                     with its full licence and provenance notes, see vendor\README.txt
   native-host/      optional: native FFmpeg merge host

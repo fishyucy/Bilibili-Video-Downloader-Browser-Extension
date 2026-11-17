@@ -1864,6 +1864,245 @@
         }
     }
 
+    // ===================== 更新提醒 =====================
+    // ===================== Update reminder =====================
+    let updatePrompted = false;   // 本次页面只提示一次 / at most one prompt per page load
+    const UPDATE_SKIP_KEY = 'bili-dl:update-skip';
+    function loadSkippedVersion() {
+        try { return String(localStorage.getItem(UPDATE_SKIP_KEY) || '').trim(); } catch (e) { return ''; }
+    }
+    function saveSkippedVersion(version) {
+        try { localStorage.setItem(UPDATE_SKIP_KEY, String(version || '').trim()); } catch (e) { /* ignore */ }
+    }
+    function isNewerVersion(latest, current) {
+        const U = window.BiliUpdate;
+        return !!(U && U.isNewer(latest, current));
+    }
+    function fetchLatestRelease() {
+        return new Promise((resolve) => {
+            if (!chrome.runtime || !chrome.runtime.id) { resolve(null); return; }
+            try {
+                chrome.runtime.sendMessage({ type: 'check-update' }, (resp) => {
+                    void (chrome.runtime && chrome.runtime.lastError);
+                    resolve(resp && resp.ok ? resp : null);
+                });
+            } catch (e) { resolve(null); }
+        });
+    }
+    function isFirefoxEdition() {
+        try {
+            const manifest = chrome.runtime.getManifest();
+            const url = chrome.runtime.getURL ? chrome.runtime.getURL('') : '';
+            const U = window.BiliUpdate;
+            if (U && U.isFirefoxBuild) return !!U.isFirefoxBuild(manifest, url);
+            return !!(manifest && manifest.browser_specific_settings && manifest.browser_specific_settings.gecko);
+        } catch (e) { return false; }
+    }
+    function detectBrowserLabel() {
+        const U = window.BiliUpdate;
+        try {
+            const name = chrome.runtime.getManifest().name || '';
+            const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+            const brave = !!(typeof navigator !== 'undefined' && navigator.brave);
+            if (U && U.browserLabel) return U.browserLabel(ua, name, brave);
+        } catch (e) { /* ignore */ }
+        return isFirefoxEdition() ? 'Firefox' : 'Chromium';
+    }
+    async function checkForUpdate(reason) {
+        if (updatePrompted) return;
+        if (dlControl.active) {
+            setTimeout(() => checkForUpdate('下载结束后'), 30000);
+            return;
+        }
+        const res = await fetchLatestRelease();
+        if (!res) {
+            console.log('[bili-dl] 更新检查失败（网络或 GitHub API），稍后再试');
+            return;
+        }
+        const latest = String(res.latest || '').replace(/^v/i, '');
+        if (!latest) return;
+        const skipped = loadSkippedVersion();
+        const U = window.BiliUpdate;
+        const prompt = U && U.shouldPrompt
+            ? U.shouldPrompt(latest, EXT_VERSION, skipped)
+            : isNewerVersion(latest, EXT_VERSION);
+        console.log('[bili-dl] 更新检查：当前 v' + EXT_VERSION + '，最新 v' + latest +
+            (skipped ? '，已跳过 v' + skipped : '') + '（' + (reason || '自动') + '）');
+        if (!prompt) return;
+        updatePrompted = true;
+        showUpdatePrompt(latest, res.html_url, res.assets);
+    }
+    function openUpdateUrl(url, download, cb) {
+        try {
+            chrome.runtime.sendMessage({ type: 'open-url', url: url, download: !!download }, (resp) => {
+                void (chrome.runtime && chrome.runtime.lastError);
+                cb(!!(resp && resp.ok), (resp && resp.error) || '');
+            });
+        } catch (e) {
+            cb(false, e && e.message ? e.message : String(e));
+        }
+    }
+    function requestUpdateAction(url, download) {
+        if (!url) {
+            notify('没有找到对应的下载地址，请前往 GitHub Release 页面。');
+            return;
+        }
+        openUpdateUrl(url, download, (ok, err) => {
+            if (!ok) {
+                notify('打开更新地址失败: ' + (err || '未知原因'));
+                return;
+            }
+            if (download) {
+                notify('更新包已开始下载。\n\nChrome / Edge：解压后在 chrome://extensions 重新加载；\nFirefox：打开下载的 .xpi 安装。');
+            }
+        });
+    }
+    function hideHostHint() {
+        const hint = document.getElementById('bili-dl-host-hint');
+        if (hint) hint.style.display = 'none';
+    }
+    async function refreshNativeHostHint() {
+        const hint = document.getElementById('bili-dl-host-hint');
+        if (!hint) return;
+        const probe = await nativeAvailable();
+        if (probe && probe.ok) { hint.style.display = 'none'; return; }
+        hint.style.display = 'flex';
+    }
+    async function downloadNativeHost(btn) {
+        const firefox = isFirefoxEdition();
+        const U = window.BiliUpdate;
+        const oldText = btn.textContent;
+        btn.textContent = '获取地址…'; btn.disabled = true;
+        const res = await fetchLatestRelease();
+        if (!res) {
+            btn.textContent = oldText; btn.disabled = false;
+            notify('获取 native-host 下载地址失败，请前往 GitHub Releases 手动下载。');
+            return;
+        }
+        const latest = String(res.latest || '').replace(/^v/i, '');
+        const name = U ? U.hostAssetName(latest, firefox) : '';
+        const asset = (res.assets || []).find(a => a && a.name === name);
+        if (!asset || !asset.url) {
+            btn.textContent = oldText; btn.disabled = false;
+            notify('没有找到当前浏览器的 native-host 安装包，请前往 GitHub Releases 手动下载。');
+            return;
+        }
+        openUpdateUrl(asset.url, true, (ok, err) => {
+            if (!ok) {
+                btn.textContent = oldText; btn.disabled = false;
+                notify('native-host 下载失败: ' + (err || '未知原因'));
+                return;
+            }
+            notify('native-host 安装包已开始下载。\n\n解压后运行 native-host\\build-host.cmd 和 install.cmd，然后刷新 B 站页面。');
+            hideHostHint();
+        });
+    }
+    function updateButton(text, background) {
+        const b = document.createElement('button');
+        b.textContent = text;
+        b.style.cssText = 'border:none;border-radius:6px;padding:7px 12px;font-size:12px;' +
+            'font-weight:600;color:#fff;cursor:pointer;background:' + background;
+        return b;
+    }
+    function showUpdatePrompt(latest, htmlUrl, assets) {
+        if (document.getElementById('bili-dl-update')) return;
+        const U = window.BiliUpdate;
+        const firefox = isFirefoxEdition();
+        const browserLabel = detectBrowserLabel();
+        const directUrl = U ? U.pickAsset(assets, latest, firefox) : '';
+
+        const overlay = document.createElement('div');
+        overlay.id = 'bili-dl-update';
+        overlay.style.cssText = [
+            'position:fixed', 'inset:0', 'z-index:2147483647',
+            'background:rgba(0,0,0,.55)', 'display:flex',
+            'align-items:center', 'justify-content:center',
+            'font:13px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif'
+        ].join(';');
+
+        const box = document.createElement('div');
+        box.setAttribute('role', 'dialog');
+        box.setAttribute('aria-modal', 'true');
+        box.style.cssText = [
+            'width:390px', 'max-width:calc(100vw - 32px)',
+            'background:#1c1c1e', 'color:#f0f0f0',
+            'border:1px solid rgba(102,204,255,.45)', 'border-radius:10px',
+            'padding:16px 18px', 'box-shadow:0 16px 48px rgba(0,0,0,.6)'
+        ].join(';');
+
+        const head = document.createElement('div');
+        head.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px';
+        const title = document.createElement('div');
+        title.textContent = '发现新版本 v' + latest;
+        title.style.cssText = 'font-size:15px;font-weight:700;color:#66ccff';
+        const close = document.createElement('button');
+        close.textContent = '✕';
+        close.title = '本次不更新';
+        close.style.cssText = 'background:none;border:none;color:rgba(255,255,255,.6);font-size:16px;cursor:pointer;padding:0 2px;line-height:1';
+        head.appendChild(title);
+        head.appendChild(close);
+
+        const body = document.createElement('div');
+        body.style.cssText = 'font-size:12px;color:rgba(255,255,255,.82);white-space:pre-wrap;margin-bottom:12px';
+        body.textContent = '当前版本 v' + EXT_VERSION + '，最新版本 v' + latest + '。\n' +
+            '已检测到当前浏览器：' + browserLabel + '。' +
+            (directUrl ? '可以直接下载对应的安装包，或前往 GitHub Release 页面查看详情。'
+                : '没有找到对应安装包，请前往 GitHub Release 页面下载。') +
+            '\n\n直接下载后：Chrome / Edge 解压并在扩展页重新加载；Firefox 打开下载的 .xpi 安装。' +
+            '\n\n「这个版本先不更新」会跳过 v' + latest + '，发布下一个版本前不再提醒；' +
+            '「本次不更新」只在当前页面关闭。';
+
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end';
+        const direct = updateButton('下载 ' + browserLabel + ' 版', '#0078d4');
+        if (!directUrl) {
+            direct.disabled = true;
+            direct.style.opacity = '.45';
+            direct.style.cursor = 'not-allowed';
+        }
+        const site = updateButton('去官网下载', 'rgba(255,255,255,.14)');
+        const skip = updateButton('这个版本先不更新', 'rgba(255,255,255,.12)');
+        const later = updateButton('本次不更新', 'rgba(255,255,255,.06)');
+
+        function closeModal() {
+            try { overlay.remove(); } catch (e) { overlay.style.display = 'none'; }
+        }
+        function dismiss() {
+            closeModal();
+            notify('已关闭本次更新提示。');
+        }
+        function skipThisVersion() {
+            closeModal();
+            saveSkippedVersion(latest);
+            notify('已跳过 v' + latest + '；发布下一个版本时会再次提醒。');
+        }
+        close.onclick = dismiss;
+        later.onclick = dismiss;
+        skip.onclick = skipThisVersion;
+        direct.onclick = () => {
+            closeModal();
+            requestUpdateAction(directUrl, true);
+        };
+        site.onclick = () => {
+            closeModal();
+            requestUpdateAction(htmlUrl, false);
+        };
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') dismiss();
+        });
+
+        row.appendChild(direct);
+        row.appendChild(site);
+        row.appendChild(skip);
+        row.appendChild(later);
+        box.appendChild(head);
+        box.appendChild(body);
+        box.appendChild(row);
+        overlay.appendChild(box);
+        (document.body || document.documentElement).appendChild(overlay);
+        try { (direct.disabled ? site : direct).focus(); } catch (e) { /* ignore */ }
+    }
+
     // ===================== UI 按钮组 =====================
     // ===================== UI button group =====================
     let collapsed = false;
@@ -1882,7 +2121,7 @@
         Object.assign(btnWrap.style, {
             display: 'flex', flexDirection: 'column', gap: '3px', overflow: 'hidden',
             transition: 'max-height .35s ease, opacity .3s ease, margin .3s ease',
-            maxHeight: '340px', opacity: '1', marginBottom: '2px'
+            maxHeight: '520px', opacity: '1', marginBottom: '2px'
         });
 
         // ---- 清晰度 / 音质选择菜单 ----
@@ -1907,7 +2146,8 @@
 
         [{ id: 'bili-dl-vq', kind: 'video', text: '画质' },
         { id: 'bili-dl-aq', kind: 'audio', text: '音质' }].forEach(({ id, kind, text }) => {
-            const label = document.createElement('div');
+            const label = document.createElement('label');
+            label.htmlFor = id;
             label.textContent = text;
             Object.assign(label.style, {
                 fontSize: '9px', color: 'rgba(255,255,255,.6)', fontWeight: '600', letterSpacing: '.3px'
@@ -1915,6 +2155,7 @@
 
             const sel = document.createElement('select');
             sel.id = id;
+            sel.name = id;
             Object.assign(sel.style, selectStyle);
 
             const auto = document.createElement('option');
@@ -1939,7 +2180,8 @@
         // 单独的第三个下拉：只影响「🎵 音频」这个按钮，合并下载走的仍是原始 m4a。
         // A third standalone dropdown: it only affects the "audio" button; the merge flow
         // keeps using the original m4a.
-        const afmtLabel = document.createElement('div');
+        const afmtLabel = document.createElement('label');
+        afmtLabel.htmlFor = 'bili-dl-afmt';
         afmtLabel.textContent = '音频格式';
         Object.assign(afmtLabel.style, {
             fontSize: '9px', color: 'rgba(255,255,255,.6)', fontWeight: '600', letterSpacing: '.3px'
@@ -1947,6 +2189,7 @@
 
         const afmtSel = document.createElement('select');
         afmtSel.id = 'bili-dl-afmt';
+        afmtSel.name = 'bili-dl-afmt';
         Object.assign(afmtSel.style, selectStyle);
         [['m4a', 'm4a（原声，最快）'], ['mp3', 'mp3（转码，稍慢）'], ['wav', 'wav（PCM，文件大）']].forEach(([v, t]) => {
             const o = document.createElement('option');
@@ -1967,7 +2210,8 @@
 
         // ---- 合并方式（自动 / 仅 FFmpeg / 仅浏览器内）----
         // ---- Merge method (auto / FFmpeg only / in-browser only) ----
-        const mmLabel = document.createElement('div');
+        const mmLabel = document.createElement('label');
+        mmLabel.htmlFor = 'bili-dl-mm';
         mmLabel.textContent = '合并方式';
         Object.assign(mmLabel.style, {
             fontSize: '9px', color: 'rgba(255,255,255,.6)', fontWeight: '600', letterSpacing: '.3px'
@@ -1975,6 +2219,7 @@
 
         const mmSel = document.createElement('select');
         mmSel.id = 'bili-dl-mm';
+        mmSel.name = 'bili-dl-mm';
         Object.assign(mmSel.style, selectStyle);
         [['auto', '自动（FFmpeg 优先）'], ['ffmpeg', '仅 FFmpeg（需宿主）'], ['mux', '仅浏览器内（不碰 FFmpeg）']].forEach(([v, t]) => {
             const o = document.createElement('option');
@@ -2015,6 +2260,36 @@
         });
         pathBtn.onclick = () => detectDownloadPath(pathBtn);
         menu.appendChild(pathBtn);
+
+        const hostHint = document.createElement('div');
+        hostHint.id = 'bili-dl-host-hint';
+        hostHint.style.cssText = 'display:none;gap:3px;align-items:center;margin-top:3px';
+        const hostBtn = document.createElement('button');
+        hostBtn.id = 'bili-dl-host-download';
+        hostBtn.textContent = '⬇ 下载 FFmpeg 宿主';
+        hostBtn.title = '未检测到 native-host；下载后解压并运行 install.cmd';
+        Object.assign(hostBtn.style, {
+            flex: '1', backgroundColor: 'rgba(255,153,0,.18)', color: '#ffd28a',
+            border: '1px solid rgba(255,153,0,.45)', borderRadius: '5px',
+            padding: '3px 6px', cursor: 'pointer', fontSize: '9.5px', fontWeight: '600'
+        });
+        hostBtn.onclick = () => downloadNativeHost(hostBtn);
+        const hostClose = document.createElement('button');
+        hostClose.id = 'bili-dl-host-dismiss';
+        hostClose.textContent = '✕';
+        hostClose.title = '关闭本次提示';
+        Object.assign(hostClose.style, {
+            width: '20px', flex: '0 0 20px', backgroundColor: 'transparent',
+            color: 'rgba(255,255,255,.55)', border: '1px solid rgba(255,255,255,.18)',
+            borderRadius: '5px', padding: '2px 0', cursor: 'pointer', fontSize: '9px'
+        });
+        hostClose.onclick = () => {
+            hideHostHint();
+            notify('已关闭本次 native-host 提示。');
+        };
+        hostHint.appendChild(hostBtn);
+        hostHint.appendChild(hostClose);
+        menu.appendChild(hostHint);
 
         btnWrap.appendChild(menu);
 
@@ -2083,7 +2358,7 @@
         });
         toggleBtn.onclick = () => {
             collapsed = !collapsed;
-            btnWrap.style.maxHeight = collapsed ? '0px' : '340px';
+            btnWrap.style.maxHeight = collapsed ? '0px' : '520px';
             btnWrap.style.opacity = collapsed ? '0' : '1';
             toggleBtn.style.transform = collapsed ? 'rotate(180deg)' : 'rotate(0deg)';
         };
@@ -2099,6 +2374,8 @@
         // （延后一点，避开刚进页面时播放器自己那一波请求）
         //   (delayed slightly to dodge the burst of requests the player fires on page load)
         setTimeout(() => autoLoadStreamMenu('页面加载'), 1800);
+        setTimeout(() => refreshNativeHostHint(), 2500);
+        setTimeout(() => checkForUpdate('页面加载'), 5000);
     }
 
     function ensureButtonGroupExists() {

@@ -41,6 +41,10 @@
 - **多分P**：自动识别当前播放的分P，切P自动重新读取档位
 - **下载路径检测**：面板上一键查看原生宿主实际输出目录与浏览器最近一次下载位置；
   宿主能识别被移动到其他盘的 Windows「下载」文件夹
+- **更新提醒**：每次打开页面检查 GitHub 最新正式版；发现新版本时可下载当前浏览器版本、
+  去 Release 页面、跳过此版本（下个版本再提醒）或本次不更新
+- **native-host 下载提示**：未安装宿主时，面板显示下载入口，按当前浏览器下载对应的宿主包；
+  可关闭本次提示
 - **三条通道自动回退**：页面直连 → 后台 Service Worker → 分片下载，主地址失败自动换备用 CDN
 - **零依赖、无构建**：纯原生 JavaScript，改完直接在浏览器重载即生效
 
@@ -256,6 +260,11 @@ Unlike "sniff the highest quality" tools it does not guess: whatever the API han
 - **Download-path detection** — one click shows the native host's actual output folder and the
   browser's most recent download location; the host follows a Windows "Downloads" folder even
   after it has been moved to another drive
+- **Update reminder** — checks the latest GitHub release on every page start; when a newer version
+  exists you can download the build for the current browser, open the release page, skip that
+  version (the next one will prompt again), or close the prompt for this page
+- **Native-host download hint** — when no native host is detected, the panel shows a download
+  entry for the matching browser package; the hint can be closed for the current page
 - **Three fallback channels** — direct page fetch → background Service Worker → split downloads, with automatic backup-CDN retries
 - **Zero dependencies, no build step** — plain modern JavaScript; edit and reload the extension
 

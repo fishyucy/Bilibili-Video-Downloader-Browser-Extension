@@ -195,6 +195,78 @@ if (chrome.downloads && chrome.downloads.onChanged) {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg && msg.type === 'check-update') {
+        // 每次页面启动都实查一次，不做缓存；失败只记日志，不影响下载。
+        // Check on every page start, no cache; failures are logged and never affect downloads.
+        (async () => {
+            try {
+                const ctrl = new AbortController();
+                const timer = setTimeout(() => ctrl.abort(), 15000);
+                let res;
+                try {
+                    res = await fetch(UPDATE_API, {
+                        headers: { 'Accept': 'application/vnd.github+json' },
+                        cache: 'no-store',
+                        signal: ctrl.signal
+                    });
+                } finally {
+                    clearTimeout(timer);
+                }
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                const payload = {
+                    ok: true,
+                    latest: data.tag_name || '',
+                    html_url: data.html_url || '',
+                    assets: (data.assets || []).map(a => ({ name: a.name, url: a.browser_download_url }))
+                };
+                sendResponse(payload);
+            } catch (e) {
+                sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });
+            }
+        })();
+        return true;
+    }
+
+    if (msg && msg.type === 'open-url') {
+        const url = String(msg.url || '');
+        // 只允许本仓库的 Release 页面 / 下载资产，防止被页面内容带去任意地址
+        // Only this repository's release pages / assets are allowed, never an arbitrary URL
+        const allowed = /^https:\/\/github\.com\/fishyucy\/Bilibili-Video-Downloader-Browser-Extension\/releases\//.test(url);
+        if (!allowed) {
+            sendResponse({ ok: false, error: '不允许的更新地址' });
+            return false;
+        }
+        if (msg.download) {
+            try {
+                chrome.downloads.download({ url: url, saveAs: false, conflictAction: 'uniquify' }, (downloadId) => {
+                    const err = chrome.runtime.lastError;
+                    if (err) {
+                        sendResponse({ ok: false, error: err.message || String(err) });
+                        return;
+                    }
+                    sendResponse({ ok: true, downloadId: downloadId });
+                });
+            } catch (e) {
+                sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });
+            }
+            return true;
+        }
+        try {
+            chrome.tabs.create({ url: url }, () => {
+                const err = chrome.runtime.lastError;
+                if (err) {
+                    sendResponse({ ok: false, error: err.message || String(err) });
+                    return;
+                }
+                sendResponse({ ok: true });
+            });
+        } catch (e) {
+            sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });
+        }
+        return true;
+    }
+
     if (msg && msg.type === 'last-download-path') {
         // 浏览器下载目录没有直接的读取 API；用「最近一次完成的下载」反查实际路径。
         // There is no direct API for the browser's download folder; use the last completed
@@ -399,6 +471,7 @@ async function runDownload(port, url, state) {
 // The host name must match the registry key, the host manifest filename and the convention inside host.cs.
 // ---------------------------------------------------------------------------
 const NATIVE_HOST = 'com.bilidl.merger';
+const UPDATE_API = 'https://api.github.com/repos/fishyucy/Bilibili-Video-Downloader-Browser-Extension/releases/latest';
 
 function safePost(port, msg) {
     try { port.postMessage(msg); } catch (e) { /* 页面已关闭 */ }
