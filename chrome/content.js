@@ -27,7 +27,59 @@
     // copy of the code the browser actually loaded
     let EXT_VERSION = '?';
     try { EXT_VERSION = chrome.runtime.getManifest().version; } catch (e) { /* 扩展上下文异常 / extension context gone */ }
-    console.log('[bili-dl] 内容脚本已加载 v' + EXT_VERSION + '（' + location.href.split('?')[0] + '）');
+
+    const I18N = window.BiliI18n;
+    // 偏好键提前声明，避免初始化日志里的 currentLang() 触发 const 暂时性死区。
+    // Declared up front so the startup-log currentLang() call cannot hit the const TDZ.
+    const PREFS_KEY = 'bili-dl:quality-prefs';
+    function detectBrowserLang() {
+        const nav = (typeof navigator !== 'undefined') ? navigator : {};
+        const lang = (nav.languages && nav.languages[0]) || nav.language || 'zh';
+        return I18N && I18N.detect ? I18N.detect(lang) : 'zh';
+    }
+    function currentLang() {
+        const el = document.getElementById('bili-dl-lang');
+        if (el && (el.value === 'zh' || el.value === 'en')) return el.value;
+        const detected = detectBrowserLang();
+        if (!I18N || !I18N.resolveLang) return detected;
+        const prefs = loadPrefs();
+        const res = I18N.resolveLang(detected, prefs.lang, prefs.browserLang);
+        if (res.patch) updatePrefs(res.patch);   // 浏览器语言变化时写回新语言与基线 / persist on browser-language change
+        return res.lang;
+    }
+    function t(key, vars) {
+        return I18N ? I18N.t(currentLang(), key, vars) : key;
+    }
+
+    // 控制台日志中英双语：把 [bili-dl] 日志里的中文短语就地改成「中文 / English」。
+    // Console logs become bilingual: rewrite known Chinese phrases inside [bili-dl] logs in place.
+    // 长短语先替换，避免短词拆散长词；动态值（数字、URL、文件名）保持原样。
+    // Longest phrases first so short ones cannot split a longer match; dynamic values are untouched.
+    (function wrapConsoleI18n() {
+        if (!I18N || !I18N.logPhrases) return;
+        const phrases = I18N.logPhrases;
+        const keys = Object.keys(phrases).filter(k => phrases[k]).sort((a, b) => b.length - a.length);
+        if (!keys.length) return;
+        const M = String.fromCharCode(1);   // 占位符 / placeholder sentinel
+        ['log', 'warn', 'error'].forEach(level => {
+            const orig = console[level].bind(console);
+            console[level] = function (...args) {
+                if (!args.length || typeof args[0] !== 'string') return orig(...args);
+                const s = args[0];
+                if (s.indexOf('[bili-dl]') !== 0 && s.indexOf('✅') !== 0) return orig(...args);
+                let out = s;
+                const hits = [];
+                keys.forEach((k, i) => {
+                    if (out.indexOf(k) >= 0) { out = out.split(k).join(M + i + M); hits.push(i); }
+                });
+                hits.forEach(i => { out = out.split(M + i + M).join(keys[i] + ' / ' + phrases[keys[i]]); });
+                args[0] = out;
+                return orig(...args);
+            };
+        });
+    })();
+
+    console.log('[bili-dl] 内容脚本已加载 v' + EXT_VERSION + '（' + location.href.split('?')[0] + '）· 语言: ' + (currentLang() === 'en' ? 'English / 英文' : '中文 / Chinese'));
 
 
     // ===================== 工具函数 =====================
@@ -79,12 +131,12 @@
                     'box-shadow:0 8px 28px rgba(0,0,0,.5)', 'border:1px solid rgba(0,161,214,.6)',
                     'cursor:pointer'
                 ].join(';');
-                box.title = '点击关闭';
                 box.addEventListener('click', () => { box.style.display = 'none'; });
                 // 正常在 document_idle 运行，body 已存在；万一没有就挂到 html 根上
                 // Normally runs at document_idle with body present; if not, attach to the root element
                 (document.body || document.documentElement).appendChild(box);
             }
+            box.title = t('toastCloseTitle');
             box.textContent = msg;
             box.style.display = 'block';
             // 短消息 12 秒后自动收起；长消息（例如通道 C 的 FFmpeg 命令）留在原地等点击，
@@ -106,7 +158,7 @@
     // 从页面标题兜底解析视频主标题（接口取不到时才用）
     // Fallback: parse the main title from the page title (used only when the API gives none)
     function parseMainTitleFromDocument() {
-        const t = document.title || '';
+        const pageTitle = document.title || '';
         const patterns = [
             /^(.+?)\s*_\s*B站/,
             /^(.+?)_-/,
@@ -115,7 +167,7 @@
             /^(.+?)\s*_\s*bilibili/i
         ];
         for (let i = 0; i < patterns.length; i++) {
-            const m = t.match(patterns[i]);
+            const m = pageTitle.match(patterns[i]);
             if (m && m[1] && m[1].trim()) return m[1].trim();
         }
         return '';
@@ -232,7 +284,13 @@
     const sortStreams = Q.sortStreams;
     const streamUrls = Q.streamUrls;
     const collectAudio = Q.collectAudio;
-    const qualitySummary = Q.summarize;
+
+    // 英文档位名：只翻译中文专有档位，其余（240P/4K/HDR…）保持原样
+    // English tier names: only the Chinese proprietary tiers are translated
+    const VIDEO_QUALITY_NAMES_EN = Object.assign({}, VIDEO_QUALITY_NAMES, { 126: 'Dolby Vision' });
+    const AUDIO_QUALITY_NAMES_EN = Object.assign({}, AUDIO_QUALITY_NAMES, { 30250: 'Dolby Atmos', 30251: 'Hi-Res Lossless' });
+    function vNames() { return currentLang() === 'en' ? VIDEO_QUALITY_NAMES_EN : VIDEO_QUALITY_NAMES; }
+    function aNames() { return currentLang() === 'en' ? AUDIO_QUALITY_NAMES_EN : AUDIO_QUALITY_NAMES; }
 
     // 杜比视界（id 126）在不支持 DV 的播放器上可能偏色，介意的话改成 true
     // Dolby Vision (id 126) can shift colours on players without DV support; set to true if that bothers you
@@ -953,8 +1011,8 @@
     // Transcode note shared by mp3 / wav
     function transcodeNote(format) {
         return format === 'wav'
-            ? 'm4a → wav（PCM 16-bit，文件较大）'
-            : `m4a → mp3 ${MP3_BITRATE}kbps`;
+            ? t('formatNoteWav')
+            : t('formatNoteMp3', { kbps: MP3_BITRATE });
     }
 
     // 只转当前这一块，避免一次性把整段 PCM 再复制成 int16（长音频能省一半内存）
@@ -1081,11 +1139,11 @@
     // Each menu option is a "tier id + codec" pair: Bilibili serves one tier in several codecs at once,
     // H.264 / HEVC / AV1 三种编码，码率差异很大，必须分开展示让用户自己挑。
     // H.264 / HEVC / AV1, whose bitrates differ hugely, so they are listed separately for the user to choose.
-    const PREFS_KEY = 'bili-dl:quality-prefs';
     // 进页面 / 切分P 后自动拉一次可选档位；不想让它自动请求的话改成 false
     // Fetch the available tiers automatically on page load / part switch; set false to stop that request
     const AUTO_LOAD_MENU = true;
     let menuOwnerKey = '';   // 当前菜单对应的 分P，切P时才重建选项 / part this menu belongs to; options are rebuilt only when the part changes
+    let lastDash = null;     // 最近一次接口返回的 dash（语言切换时重建选项用）/ last dash response (used to rebuild options on language change)
 
     function loadPrefs() {
         try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch (e) { return {}; }
@@ -1149,7 +1207,7 @@
         sel.innerHTML = '';
         const auto = document.createElement('option');
         auto.value = 'auto';
-        auto.textContent = '最高（自动）';
+        auto.textContent = t('auto');
         styleOption(auto);
         sel.appendChild(auto);
 
@@ -1171,13 +1229,14 @@
     }
 
     function populateStreamMenu(bvid, cid, dash) {
+        lastDash = dash;
         const key = bvid + '/' + cid;
         if (menuOwnerKey === key) return;   // 同一个分P不重建，免得冲掉用户的选择 / same part, so keep the options and the user's choice
         menuOwnerKey = key;
         autoLoadedPage = pageKey();         // 标记该分P已读过，自动流程就不必再拉一次 / mark this part as read so auto-load need not fetch it again
         const prefs = loadPrefs();
-        fillSelect('video', dash.video || [], VIDEO_QUALITY_NAMES, prefs.vq);
-        fillSelect('audio', collectAudio(dash), AUDIO_QUALITY_NAMES, prefs.aq);
+        fillSelect('video', dash.video || [], vNames(), prefs.vq);
+        fillSelect('audio', collectAudio(dash), aNames(), prefs.aq);
         console.log('[bili-dl] 清晰度菜单已更新：' +
             (selectEl('video') ? selectEl('video').value : '-') + ' / ' +
             (selectEl('audio') ? selectEl('audio').value : '-'));
@@ -1199,6 +1258,57 @@
         });
     }
 
+    function setTextById(id, key) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = t(key);
+    }
+    function setOptionTextById(id, value, key) {
+        const sel = document.getElementById(id);
+        if (!sel) return;
+        for (let i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value === value) { sel.options[i].textContent = t(key); return; }
+        }
+    }
+    function applyLanguage() {
+        setTextById('bili-dl-lang-label', 'langLabel');
+        setTextById('bili-dl-vq-label', 'quality');
+        setTextById('bili-dl-aq-label', 'audio');
+        setTextById('bili-dl-afmt-label', 'format');
+        setTextById('bili-dl-mm-label', 'merge');
+        setTextById('bili-dl-refresh', 'refresh');
+        setTextById('bili-dl-path', 'path');
+        setTextById('bili-dl-host-download', 'hostDownload');
+        setOptionTextById('bili-dl-afmt', 'm4a', 'afmtM4a');
+        setOptionTextById('bili-dl-afmt', 'mp3', 'afmtMp3');
+        setOptionTextById('bili-dl-afmt', 'wav', 'afmtWav');
+        setOptionTextById('bili-dl-mm', 'auto', 'mmAuto');
+        setOptionTextById('bili-dl-mm', 'ffmpeg', 'mmFfmpeg');
+        setOptionTextById('bili-dl-mm', 'mux', 'mmMux');
+        if (lastDash) {
+            fillSelect('video', lastDash.video || [], vNames(), loadPrefs().vq);
+            fillSelect('audio', collectAudio(lastDash), aNames(), loadPrefs().aq);
+        } else {
+            ['video', 'audio'].forEach(kind => {
+                const sel = selectEl(kind);
+                if (sel && sel.options[0]) sel.options[0].textContent = t('auto');
+            });
+        }
+        const hostClose = document.getElementById('bili-dl-host-dismiss');
+        if (hostClose) hostClose.title = t('hostCloseTitle');
+        refreshControlButtons();
+        // 正在跑的按钮保留进度文字
+        // Keep the active download button's progress text
+        ['bili-dl-audio', 'bili-dl-video', 'bili-dl-merge'].forEach(id => {
+            if (dlControl.active && dlControl.btn && dlControl.btn.id === id) return;
+            setTextById(id, id === 'bili-dl-audio' ? 'btnAudio' : (id === 'bili-dl-video' ? 'btnVideo' : 'btnMerge'));
+        });
+        const settingsBtn = document.getElementById('bili-dl-settings-btn');
+        const settingsPanel = document.getElementById('bili-dl-settings-panel');
+        if (settingsBtn && settingsPanel) {
+            settingsBtn.textContent = t(settingsPanel.style.display === 'none' ? 'settings' : 'settingsHide');
+        }
+    }
+
     // ---- 自动读取可选档位 ----
     // ---- Auto-load the available tiers ----
     let autoLoadedPage = '';   // 已经读过档位的分P（bvid/pN） / parts whose tiers were already fetched (bvid/pN)
@@ -1218,7 +1328,7 @@
 
         autoLoading = true;
         autoLoadedPage = key;   // 先占位，防止并发重复请求 / claim the slot first to block duplicate concurrent requests
-        setMenuStatus('最高（读取中…）');
+        setMenuStatus(t('autoLoading'));
         try {
             const info = await getCurrentPageInfo();
             await getDashPlayUrl(info.bvid, info.cid);   // 内部会填充菜单 / this fills the menu internally
@@ -1229,7 +1339,7 @@
             // 但如果请求在途时用户已切到别的分P，就不能清掉新页面的标记
             // but if the user switched parts mid-flight, do not wipe the new page's marker
             if (pageKey() === key) autoLoadedPage = '';
-            setMenuStatus('最高（自动）');
+            setMenuStatus(t('auto'));
             console.warn('[bili-dl] 自动读取可选档位失败，可手动点「↻ 读取可选档位」重试：', err && err.message);
         } finally {
             autoLoading = false;
@@ -1237,7 +1347,7 @@
     }
 
     async function refreshStreamMenu(btn) {
-        if (btn) { btn.textContent = '刷新中…'; btn.disabled = true; }
+        if (btn) { btn.textContent = t('refreshBusy'); btn.disabled = true; }
         try {
             const info = await getCurrentPageInfo();
             menuOwnerKey = '';                       // 强制重建选项 / force a rebuild of the options
@@ -1254,22 +1364,15 @@
             const hiresAvailable = hasFlacAudio(dash);
             const hiresBlocked = !hiresAvailable && !!(dash.flac && dash.flac.display);
             if (hiresBlocked) {
-                notify(isVip
-                    ? '提示：这个视频有无损（Hi-Res）音轨，但网页端拿不到。\n\n' +
-                      '已实测确认：Hi-Res 属于 APP 端功能，网页接口不下发这条音轨' +
-                      '（换参数、乃至照抄网页播放器自己的请求都拿不到）。\n\n' +
-                      '网页端能拿到的最高音质：杜比全景声（若该视频有）或 192K AAC。'
-                    : '提示：这个视频有无损（Hi-Res）音轨，但当前账号拿不到。\n' +
-                      'Hi-Res 与杜比全景声都需要大会员。');
+                notify(t(isVip ? 'hiresBlockedVip' : 'hiresBlockedAccount'));
             } else if (!hiresAvailable) {
-                notify('提示：这个视频没有提供 Hi-Res 无损音轨。\n' +
-                    'B 站只有部分投稿带无损音轨，标题里写「Hi-Res」多半是 UP 主的宣传词。');
+                notify(t('hiresMissing'));
             }
         } catch (err) {
             console.error('[bili-dl] 刷新清晰度列表失败：', err);
-            notify('刷新清晰度列表失败: ' + err.message);
+            notify(t('refreshFail', { error: err.message }));
         } finally {
-            if (btn) { btn.textContent = '↻ 读取可选档位'; btn.disabled = false; }
+            if (btn) { btn.textContent = t('refresh'); btn.disabled = false; }
         }
     }
 
@@ -1277,7 +1380,7 @@
     // Detect download paths: the native host reports its actual output folder; the browser side
     // is inferred from the most recent completed download.
     async function detectDownloadPath(btn) {
-        if (btn) { btn.textContent = '检测中…'; btn.disabled = true; }
+        if (btn) { btn.textContent = t('pathBusy'); btn.disabled = true; }
         try {
             const probe = await nativeAvailable(true);
             const last = await new Promise((resolve) => {
@@ -1292,30 +1395,28 @@
 
             let hostLine;
             if (probe && probe.ok && probe.outDir) {
-                hostLine = '原生 FFmpeg 宿主：' + probe.outDir;
+                hostLine = t('pathHost', { path: probe.outDir });
             } else if (probe && probe.ok) {
-                hostLine = '原生 FFmpeg 宿主：已安装，但版本较旧、未返回路径';
+                hostLine = t('pathHostOld');
             } else {
-                hostLine = '原生 FFmpeg 宿主：未检测到（不影响浏览器内下载）';
+                hostLine = t('pathHostMissing');
             }
 
             let browserLine;
             if (last && last.ok && last.filename) {
-                browserLine = '浏览器最近一次下载：' + last.filename +
-                    (last.exists === false ? '（该文件已不在原处）' : '');
+                browserLine = t('pathBrowser', { path: last.filename }) +
+                    (last.exists === false ? t('pathBrowserGone') : '');
             } else if (last && last.ok) {
-                browserLine = '浏览器最近一次下载：还没有已完成的下载记录';
+                browserLine = t('pathBrowserNone');
             } else {
-                browserLine = '浏览器最近一次下载：读取失败' +
-                    (last && last.error ? '（' + last.error + '）' : '');
+                browserLine = t('pathBrowserError', { error: (last && last.error) || t('unknownError') });
             }
 
-            notify('📁 下载路径检测\n\n' + hostLine + '\n' + browserLine +
-                '\n\n说明：浏览器内保存跟随浏览器设置；原生宿主跟随系统「下载」文件夹（已被移动也能识别）。');
+            notify(t('pathTitle') + '\n\n' + hostLine + '\n' + browserLine + '\n\n' + t('pathNote'));
         } catch (e) {
-            notify('检测下载路径失败: ' + (e && e.message ? e.message : e));
+            notify(t('pathFail', { error: (e && e.message ? e.message : e) }));
         } finally {
-            if (btn) { btn.textContent = '📁 检测下载路径'; btn.disabled = false; }
+            if (btn) { btn.textContent = t('path'); btn.disabled = false; }
         }
     }
 
@@ -1523,9 +1624,12 @@
         const cancelBtn = document.getElementById('bili-dl-cancel');
         if (pauseBtn) {
             pauseBtn.disabled = !dlControl.active;
-            pauseBtn.textContent = dlControl.paused ? '▶ 继续' : '⏸ 暂停';
+            pauseBtn.textContent = dlControl.paused ? t('resume') : t('pause');
         }
-        if (cancelBtn) cancelBtn.disabled = !dlControl.active;
+        if (cancelBtn) {
+            cancelBtn.disabled = !dlControl.active;
+            cancelBtn.textContent = t('cancel');
+        }
     }
 
     function beginDownload(btn) {
@@ -1581,16 +1685,18 @@
         dlControl.paused = !dlControl.paused;
 
         if (dlControl.paused) {
-            if (dlControl.btn && dlControl.btn.textContent.indexOf('已暂停') < 0) {
-                dlControl.btn.textContent = '已暂停 · ' + dlControl.btn.textContent;
+            const prefix = t('pausedPrefix');
+            if (dlControl.btn && dlControl.btn.textContent.indexOf(prefix) < 0) {
+                dlControl.btn.textContent = prefix + dlControl.btn.textContent;
             }
             console.log('[bili-dl] 已暂停' + (dlControl.native ? '（原生宿主）' : ''));
         } else {
             // 恢复按钮文字：只在前缀还在时去掉它；若进度回调已覆盖过文字就不动
             // Restore the label: strip the prefix only while it is still there; if a progress
             // update already overwrote the text, leave it alone
-            if (dlControl.btn && dlControl.btn.textContent.indexOf('已暂停 · ') === 0) {
-                dlControl.btn.textContent = dlControl.btn.textContent.slice('已暂停 · '.length);
+            const prefix = t('pausedPrefix');
+            if (dlControl.btn && dlControl.btn.textContent.indexOf(prefix) === 0) {
+                dlControl.btn.textContent = dlControl.btn.textContent.slice(prefix.length);
             }
             releasePaused(false);
             console.log('[bili-dl] 已继续');
@@ -1622,14 +1728,67 @@
     // ===================== Download actions =====================
     // All messages go through notify(): no dialogs any more -- always the bottom-right toast
     // (a sandboxed page silently ignores alert)
+    function partLine(info) {
+        return t('partLine', { p: info.p, total: info.total });
+    }
+    function detailLine(err) {
+        if (!err) return '';
+        return currentLang() === 'en' ? '\n(' + err + ')' : '\n（' + err + '）';
+    }
+    function videoLine(video) {
+        return t('videoLine', {
+            q: qualityLabel(vNames(), video.quality),
+            size: video.width + 'x' + video.height,
+            codec: codecFamily(video.codecs),
+            kbps: kbps(video.bandwidth)
+        });
+    }
+    function audioLine(audio) {
+        return t('audioLine', {
+            q: qualityLabel(aNames(), audio.quality),
+            codec: codecFamily(audio.codecs),
+            kbps: kbps(audio.bandwidth)
+        });
+    }
+    function fileLine(file) {
+        return t('fileLine', { file: file });
+    }
+    function sizeLine(bytes) {
+        return t('sizeLine', { size: (bytes / 1048576).toFixed(1) + ' MB' });
+    }
+    function specLine(video, audio) {
+        const parts = [];
+        if (video) {
+            parts.push(t('specVideo', {
+                q: qualityLabel(vNames(), video.quality),
+                size: video.width + 'x' + video.height,
+                codec: codecFamily(video.codecs)
+            }));
+        }
+        if (audio) {
+            parts.push(t('specAudio', {
+                q: qualityLabel(aNames(), audio.quality),
+                codec: codecFamily(audio.codecs)
+            }));
+        }
+        return t('specLine', { spec: parts.join(' / ') });
+    }
+    function hostProgressText(m) {
+        if (m.phase === 'merge') return t('statusFfmpegMuxing');
+        if (m.phase === 'transcode') return t('statusTranscodingPct', { pct: m.percent });
+        if (m.label === '视频') return t('statusVideoPct', { pct: m.percent });
+        if (m.label === '音频') return t('statusAudioPct', { pct: m.percent });
+        return (m.label || t('progressDownloadFallback')) + ' ' + m.percent + '%';
+    }
+
     async function downloadAudio(btn) {
-        btn.textContent = '解析中…'; btn.disabled = true;
+        btn.textContent = t('statusParsing'); btn.disabled = true;
         beginDownload(btn);
         try {
             const info = await getCurrentPageInfo();
             const dash = await getDashPlayUrl(info.bvid, info.cid);
             const audio = getBestAudioStream(dash);
-            if (!audio) throw new Error('该视频没有独立的音频流');
+            if (!audio) throw new Error(t('noAudioStream'));
 
             const format = currentAudioFormat();               // 'm4a' | 'mp3' | 'wav'
             const wantTranscode = format !== 'm4a';
@@ -1654,35 +1813,34 @@
                 const probe = await nativeAvailable(format === 'wav' && nativeProbeCache && !nativeProbeCache.wav);
                 if (probe && probe.ok && format === 'wav' && !probe.wav) {
                     if (method === 'ffmpeg') {
-                        throw new Error('原生宿主版本过旧，不支持 WAV 转码。\n请重新安装 native-host（1.25.0 或更新），或把「合并方式」改为「自动 / 仅浏览器内」。');
+                        throw new Error(t('oldHostWav'));
                     }
                     console.log('[bili-dl] 原生宿主不支持 WAV，改用内置编码器');
                 } else if (probe && probe.ok) {
                     try {
-                        btn.textContent = 'FFmpeg 转码中…';
+                        btn.textContent = t('statusFfmpegTranscoding');
                         const outName = outputName(info, format);
                         // 传整个地址列表，主地址连不上会自动换备用
                         // Pass the whole list; a dead primary address falls through automatically
                         const res = await nativeTranscodeAny(audio.urls, outName, MP3_BITRATE, (m) => {
-                            btn.textContent = (m.label || '转码') + ' ' + m.percent + '%';
+                            btn.textContent = hostProgressText(m);
                         }, format);
-                        const aq = qualityLabel(AUDIO_QUALITY_NAMES, audio.quality);
                         console.log(`✅ 已下载 P${info.p}/${info.total}: ${outName}（本地 FFmpeg）`);
-                        notify(`✅ 音频下载完成！（本地 FFmpeg 转码）\n当前分P: P${info.p}/${info.total}\n音质: ${aq} ${codecFamily(audio.codecs)} ${kbps(audio.bandwidth)}\n转码: ${transcodeNote(format)}\n\n文件：${res.output}`);
+                        notify(t('audioDoneNativeTitle') + '\n' + partLine(info) + '\n' + audioLine(audio) +
+                            '\n' + t('transcodeLine', { note: transcodeNote(format) }) + '\n\n' + fileLine(res.output));
                         return;
                     } catch (e) {
                         if (isCancelled(e)) throw e;
                         if (method === 'ffmpeg') {
                             // 选了「仅 FFmpeg」就不悄悄换编码器，把真实原因抛给用户
                             // With "FFmpeg only" selected we do not silently switch encoders
-                            throw new Error('FFmpeg 转码失败（已选「仅 FFmpeg」，不自动回退）：' + (e && e.message ? e.message : e));
+                            throw new Error(t('ffmpegOnlyTranscodeFail', { error: (e && e.message ? e.message : e) }));
                         }
                         console.warn('[bili-dl] 本地 FFmpeg 转码失败，改用内置编码器：' + (e && e.message));
                     }
                 } else {
                     if (method === 'ffmpeg') {
-                        throw new Error('未检测到原生 FFmpeg 宿主（native-host 未安装或未注册）。\n把「合并方式」改为「自动」或「仅浏览器内」，或先安装 native-host。' +
-                            (probe && probe.error ? '\n（' + probe.error + '）' : ''));
+                        throw new Error(t('noNativeHostTranscode', { detail: detailLine(probe && probe.error) }));
                     }
                     console.log('[bili-dl] 未检测到本地 FFmpeg，使用内置编码器转码' +
                         (probe && probe.error ? '（' + probe.error + '）' : ''));
@@ -1691,73 +1849,71 @@
 
             // 无论哪种格式都得先取到原始 m4a：m4a 直接落盘，mp3 / wav 再解码重编码
             // Either way the raw m4a must be fetched first: saved as-is, or decoded and re-encoded
-            btn.textContent = '下载音频…';
+            btn.textContent = t('statusDownloadAudio');
             const srcName = outputName(info, 'm4a');
             const srcBlob = await fetchStreamBlob(audio.urls, srcName, (name, pct) => {
-                btn.textContent = `音频 ${pct}%`;
+                btn.textContent = t('statusAudioPct', { pct: pct });
             });
 
             let filename = srcName;
             let outBlob = srcBlob;
 
             if (wantTranscode) {
-                btn.textContent = '转码中…';
+                btn.textContent = t('statusTranscoding');
                 outBlob = format === 'wav'
-                    ? await blobToWav(srcBlob, (pct) => { btn.textContent = `转码 ${pct}%`; })
-                    : await blobToMp3(srcBlob, (pct) => { btn.textContent = `转码 ${pct}%`; });
+                    ? await blobToWav(srcBlob, (pct) => { btn.textContent = t('statusTranscodingPct', { pct: pct }); })
+                    : await blobToMp3(srcBlob, (pct) => { btn.textContent = t('statusTranscodingPct', { pct: pct }); });
                 filename = outputName(info, format);
             }
 
             await saveBlob(outBlob, filename);
 
-            const aq = qualityLabel(AUDIO_QUALITY_NAMES, audio.quality);
             console.log(`✅ 已下载 P${info.p}/${info.total}: ${filename}`);
-            notify(`✅ 音频下载完成！\n当前分P: P${info.p}/${info.total}\n音质: ${aq} ${codecFamily(audio.codecs)} ${kbps(audio.bandwidth)}` +
-                (wantTranscode ? `\n转码: ${transcodeNote(format)}` : ''));
+            notify(t('audioDoneTitle') + '\n' + partLine(info) + '\n' + audioLine(audio) +
+                (wantTranscode ? '\n' + t('transcodeLine', { note: transcodeNote(format) }) : ''));
         } catch (err) {
             if (isCancelled(err)) { console.log('[bili-dl] 音频下载已取消'); return; }
             console.error(err);
-            notify('音频下载失败: ' + err.message);
+            notify(t('audioFail', { error: err.message }));
         } finally {
-            btn.textContent = '🎵 音频'; btn.disabled = false;
+            btn.textContent = t('btnAudio'); btn.disabled = false;
             endDownload();
         }
     }
 
     async function downloadVideoOnly(btn) {
-        btn.textContent = '解析中…'; btn.disabled = true;
+        btn.textContent = t('statusParsing'); btn.disabled = true;
         beginDownload(btn);
         try {
             const info = await getCurrentPageInfo();
             const dash = await getDashPlayUrl(info.bvid, info.cid);
             const video = getBestVideoStream(dash);
-            if (!video) throw new Error('该视频没有视频流');
+            if (!video) throw new Error(t('noVideoStream'));
 
-            btn.textContent = '下载视频…';
+            btn.textContent = t('statusDownloadVideo');
             const filename = outputName(info, 'mp4');
-            await downloadFile(video.urls, filename, (name, pct) => { btn.textContent = `视频 ${pct}%`; });
-            const vq = qualityLabel(VIDEO_QUALITY_NAMES, video.quality);
+            await downloadFile(video.urls, filename, (name, pct) => { btn.textContent = t('statusVideoPct', { pct: pct }); });
             console.log(`✅ 已下载 P${info.p}/${info.total}: ${filename}`);
-            notify(`✅ 视频下载完成！\n当前分P: P${info.p}/${info.total}\n画质: ${vq} ${video.width}x${video.height} ${codecFamily(video.codecs)} ${kbps(video.bandwidth)}`);
+            notify(t('videoDoneTitle') + '\n' + partLine(info) + '\n' + videoLine(video));
         } catch (err) {
             if (isCancelled(err)) { console.log('[bili-dl] 视频下载已取消'); return; }
             console.error(err);
-            notify('视频下载失败: ' + err.message);
+            notify(t('videoFail', { error: err.message }));
         } finally {
-            btn.textContent = '🎬 仅视频'; btn.disabled = false;
+            btn.textContent = t('btnVideo'); btn.disabled = false;
             endDownload();
         }
     }
 
     async function downloadVideoWithAudio(btn) {
-        btn.textContent = '解析中…'; btn.disabled = true;
+        btn.textContent = t('statusParsing'); btn.disabled = true;
         beginDownload(btn);
         try {
             const info = await getCurrentPageInfo();
             const dash = await getDashPlayUrl(info.bvid, info.cid);
             const video = getBestVideoStream(dash);
             const audio = getBestAudioStream(dash);
-            if (!video) throw new Error('该视频没有视频流');
+            if (!video) throw new Error(t('noVideoStream'));
 
             // 合并方式由面板的「合并方式」下拉决定：auto / ffmpeg / mux
             // The merge method comes from the panel dropdown: auto / ffmpeg / mux
@@ -1771,29 +1927,28 @@
                     const probe = await nativeAvailable();
                     if (probe && probe.ok) {
                         try {
-                            btn.textContent = 'FFmpeg 合并中…';
+                            btn.textContent = t('statusFfmpegMerging');
                             const mergedName = outputName(info, 'mp4');
                             const res = await nativeMergeFile(video.url, audio.url, mergedName, (m) => {
-                                if (m.phase === 'merge') btn.textContent = 'FFmpeg 封装中…';
-                                else btn.textContent = `${m.label || '下载'} ${m.percent}%`;
+                                if (m.phase === 'merge') btn.textContent = t('statusFfmpegMuxing');
+                                else btn.textContent = hostProgressText(m);
                             });
-                            const mb = res.size ? (res.size / 1048576).toFixed(1) + ' MB' : '';
                             console.log(`✅ FFmpeg 已合并 P${info.p}/${info.total}: ${res.output}`);
-                            notify(`✅ 已自动合并完成（原生 FFmpeg）！\n当前分P: P${info.p}/${info.total}\n大小: ${mb}\n规格: ${qualitySummary(video, audio)}\n\n文件：${res.output}`);
+                            notify(t('mergeDoneNativeTitle') + '\n' + partLine(info) + '\n' +
+                                (res.size ? sizeLine(res.size) + '\n' : '') + specLine(video, audio) + '\n\n' + fileLine(res.output));
                             return;
                         } catch (e) {
                             if (isCancelled(e)) throw e;
                             if (method === 'ffmpeg') {
                                 // 选了「仅 FFmpeg」就不悄悄换通道，把真实原因抛给用户
                                 // With "FFmpeg only" selected we do not silently switch channels
-                                throw new Error('FFmpeg 合并失败（已选「仅 FFmpeg」，不自动回退）：' + (e && e.message ? e.message : e));
+                                throw new Error(t('ffmpegOnlyMergeFail', { error: (e && e.message ? e.message : e) }));
                             }
                             console.warn('[bili-dl] 原生合并失败，改用浏览器内合并：', e);
                         }
                     } else {
                         if (method === 'ffmpeg') {
-                            throw new Error('未检测到原生 FFmpeg 宿主（native-host 未安装或未注册）。\n把「合并方式」改回「自动」或「仅浏览器内」，或先安装 native-host。' +
-                                (probe && probe.error ? '\n（' + probe.error + '）' : ''));
+                            throw new Error(t('noNativeHostMerge', { detail: detailLine(probe && probe.error) }));
                         }
                         console.log('[bili-dl] 未检测到原生宿主，使用浏览器内重封装：' + (probe && probe.error ? probe.error : ''));
                     }
@@ -1803,32 +1958,33 @@
                 // ---------- Channel B: pure-JS remux inside the browser (nothing to install, no re-encode) ----------
                 if (method !== 'ffmpeg') {
                     if (!window.BiliMux) {
-                        if (method === 'mux') throw new Error('浏览器内重封装组件未加载（muxer.js），请重新加载扩展后重试');
+                        if (method === 'mux') throw new Error(t('muxerMissing'));
                     } else {
                         try {
-                            btn.textContent = '下载视频…';
+                            btn.textContent = t('statusDownloadVideo');
                             const vBlob = await fetchStreamBlob(video.urls, outputName(info, 'mp4'), (n, pct) => {
-                                btn.textContent = `视频 ${pct}%`;
+                                btn.textContent = t('statusVideoPct', { pct: pct });
                             });
-                            btn.textContent = '下载音频…';
+                            btn.textContent = t('statusDownloadAudio');
                             const aBlob = await fetchStreamBlob(audio.urls, outputName(info, 'm4a'), (n, pct) => {
-                                btn.textContent = `音频 ${pct}%`;
+                                btn.textContent = t('statusAudioPct', { pct: pct });
                             });
 
-                            btn.textContent = '合并中…';
+                            btn.textContent = t('statusMerging');
                             const merged = await window.BiliMux.merge(vBlob, aBlob, (phase, pct) => {
-                                btn.textContent = `${phase} ${pct}%`;
+                                btn.textContent = (phase === '解析' ? t('statusParsing') : t('statusMerging')) + ' ' + pct + '%';
                             });
 
                             const filename = outputName(info, 'mp4');
                             await saveBlob(merged, filename);
                             console.log(`✅ 浏览器内重封装完成 P${info.p}/${info.total}: ${filename}（${merged.size} 字节）`);
-                            notify(`✅ 已自动合并完成（浏览器内重封装，无转码）！\n当前分P: P${info.p}/${info.total}\n大小: ${(merged.size / 1048576).toFixed(1)} MB\n规格: ${qualitySummary(video, audio)}\n\n文件：${filename}`);
+                            notify(t('mergeDoneMuxTitle') + '\n' + partLine(info) + '\n' +
+                                sizeLine(merged.size) + '\n' + specLine(video, audio) + '\n\n' + fileLine(filename));
                             return;
                         } catch (e) {
                             if (isCancelled(e)) throw e;
                             if (method === 'mux') {
-                                throw new Error('浏览器内重封装失败（已选「仅浏览器内」，不自动回退）：' + (e && e.message ? e.message : e));
+                                throw new Error(t('muxOnlyMergeFail', { error: (e && e.message ? e.message : e) }));
                             }
                             console.warn('[bili-dl] 浏览器内合并失败，回退到分离下载：', e);
                         }
@@ -1839,27 +1995,28 @@
             // ---------- 通道 C：兜底 —— 分开下载，人工合并（仅「自动」模式；视频没有音轨时也走这里）----------
             // ---------- Channel C: last resort -- download separately, merge by hand (auto mode only; also used when there is no audio track) ----------
             if (method === 'auto' || !audio) {
-                btn.textContent = '下载视频…';
+                btn.textContent = t('statusDownloadVideo');
                 const videoFile = outputName(info, 'mp4');
-                await downloadFile(video.urls, videoFile, (name, pct) => { btn.textContent = `视频 ${pct}%`; });
+                await downloadFile(video.urls, videoFile, (name, pct) => { btn.textContent = t('statusVideoPct', { pct: pct }); });
 
                 let audioFile = '';
                 if (audio) {
-                    btn.textContent = '下载音频…';
+                    btn.textContent = t('statusDownloadAudio');
                     audioFile = outputName(info, 'm4a');
-                    await downloadFile(audio.urls, audioFile, (name, pct) => { btn.textContent = `音频 ${pct}%`; });
+                    await downloadFile(audio.urls, audioFile, (name, pct) => { btn.textContent = t('statusAudioPct', { pct: pct }); });
                 }
 
-                const outputFile = outputName(info, 'mp4', ' 完整版');
+                const outputFile = outputName(info, 'mp4', currentLang() === 'en' ? ' full' : ' 完整版');
+                const command = `ffmpeg -i "${videoFile}" ${audio ? `-i "${audioFile}" -c:v copy -c:a copy` : '-c:v copy'} "${outputFile}"`;
                 console.log(`✅ 已下载 P${info.p}/${info.total}`);
-                notify(`✅ 下载完成！\n当前分P: P${info.p}/${info.total}\n\n请用 FFmpeg 合并：\nffmpeg -i "${videoFile}" ${audio ? `-i "${audioFile}" -c:v copy -c:a copy` : '-c:v copy'} "${outputFile}"\n\n──────\n自动合并这次没成功（原因见控制台 [bili-dl] 开头的中文日志）。\n装了 native-host 的话会自动改用原生 FFmpeg 合并。`);
+                notify(t('fallbackDoneTitle') + '\n' + partLine(info) + '\n\n' + t('fallbackInstructions', { command: command }));
             }
         } catch (err) {
             if (isCancelled(err)) { console.log('[bili-dl] 合并下载已取消'); return; }
             console.error(err);
-            notify('下载失败: ' + err.message);
+            notify(t('downloadFail', { error: err.message }));
         } finally {
-            btn.textContent = '🎬🎵 视频+音频'; btn.disabled = false;
+            btn.textContent = t('btnMerge'); btn.disabled = false;
             endDownload();
         }
     }
@@ -1927,7 +2084,7 @@
             ? U.shouldPrompt(latest, EXT_VERSION, skipped)
             : isNewerVersion(latest, EXT_VERSION);
         console.log('[bili-dl] 更新检查：当前 v' + EXT_VERSION + '，最新 v' + latest +
-            (skipped ? '，已跳过 v' + skipped : '') + '（' + (reason || '自动') + '）');
+            '（' + (reason || '自动') + '）');
         if (!prompt) return;
         updatePrompted = true;
         showUpdatePrompt(latest, res.html_url, res.assets);
@@ -1944,16 +2101,16 @@
     }
     function requestUpdateAction(url, download) {
         if (!url) {
-            notify('没有找到对应的下载地址，请前往 GitHub Release 页面。');
+            notify(t('updateNoUrl'));
             return;
         }
         openUpdateUrl(url, download, (ok, err) => {
             if (!ok) {
-                notify('打开更新地址失败: ' + (err || '未知原因'));
+                notify(t('updateOpenError', { error: err || t('unknownError') }));
                 return;
             }
             if (download) {
-                notify('更新包已开始下载。\n\nChrome / Edge：解压后在 chrome://extensions 重新加载；\nFirefox：打开下载的 .xpi 安装。');
+                notify(t('updateDownloadStarted'));
             }
         });
     }
@@ -1972,11 +2129,11 @@
         const firefox = isFirefoxEdition();
         const U = window.BiliUpdate;
         const oldText = btn.textContent;
-        btn.textContent = '获取地址…'; btn.disabled = true;
+        btn.textContent = t('hostFetching'); btn.disabled = true;
         const res = await fetchLatestRelease();
         if (!res) {
             btn.textContent = oldText; btn.disabled = false;
-            notify('获取 native-host 下载地址失败，请前往 GitHub Releases 手动下载。');
+            notify(t('hostFetchError'));
             return;
         }
         const latest = String(res.latest || '').replace(/^v/i, '');
@@ -1984,16 +2141,16 @@
         const asset = (res.assets || []).find(a => a && a.name === name);
         if (!asset || !asset.url) {
             btn.textContent = oldText; btn.disabled = false;
-            notify('没有找到当前浏览器的 native-host 安装包，请前往 GitHub Releases 手动下载。');
+            notify(t('hostNoAsset'));
             return;
         }
         openUpdateUrl(asset.url, true, (ok, err) => {
             if (!ok) {
                 btn.textContent = oldText; btn.disabled = false;
-                notify('native-host 下载失败: ' + (err || '未知原因'));
+                notify(t('hostDownloadError', { error: err || t('unknownError') }));
                 return;
             }
-            notify('native-host 安装包已开始下载。\n\n解压后运行 native-host\\build-host.cmd 和 install.cmd，然后刷新 B 站页面。');
+            notify(t('hostDownloadStarted'));
             hideHostHint();
         });
     }
@@ -2033,48 +2190,47 @@
         const head = document.createElement('div');
         head.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px';
         const title = document.createElement('div');
-        title.textContent = '发现新版本 v' + latest;
+        title.textContent = t('updateTitle', { v: latest });
         title.style.cssText = 'font-size:15px;font-weight:700;color:#66ccff';
         const close = document.createElement('button');
         close.textContent = '✕';
-        close.title = '本次不更新';
+        close.title = t('updateCloseTitle');
         close.style.cssText = 'background:none;border:none;color:rgba(255,255,255,.6);font-size:16px;cursor:pointer;padding:0 2px;line-height:1';
         head.appendChild(title);
         head.appendChild(close);
 
         const body = document.createElement('div');
         body.style.cssText = 'font-size:12px;color:rgba(255,255,255,.82);white-space:pre-wrap;margin-bottom:12px';
-        body.textContent = '当前版本 v' + EXT_VERSION + '，最新版本 v' + latest + '。\n' +
-            '已检测到当前浏览器：' + browserLabel + '。' +
-            (directUrl ? '可以直接下载对应的安装包，或前往 GitHub Release 页面查看详情。'
-                : '没有找到对应安装包，请前往 GitHub Release 页面下载。') +
-            '\n\n直接下载后：Chrome / Edge 解压并在扩展页重新加载；Firefox 打开下载的 .xpi 安装。' +
-            '\n\n「这个版本先不更新」会跳过 v' + latest + '，发布下一个版本前不再提醒；' +
-            '「本次不更新」只在当前页面关闭。';
+        body.textContent = t('updateBody', {
+            current: EXT_VERSION,
+            latest: latest,
+            browser: browserLabel,
+            directText: directUrl ? t('updateDirectText') : t('updateNoAssetText')
+        });
 
         const row = document.createElement('div');
         row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end';
-        const direct = updateButton('下载 ' + browserLabel + ' 版', '#0078d4');
+        const direct = updateButton(t('updateDownloadBtn', { browser: browserLabel }), '#0078d4');
         if (!directUrl) {
             direct.disabled = true;
             direct.style.opacity = '.45';
             direct.style.cursor = 'not-allowed';
         }
-        const site = updateButton('去官网下载', 'rgba(255,255,255,.14)');
-        const skip = updateButton('这个版本先不更新', 'rgba(255,255,255,.12)');
-        const later = updateButton('本次不更新', 'rgba(255,255,255,.06)');
+        const site = updateButton(t('updateOfficialBtn'), 'rgba(255,255,255,.14)');
+        const skip = updateButton(t('updateSkipBtn'), 'rgba(255,255,255,.12)');
+        const later = updateButton(t('updateLaterBtn'), 'rgba(255,255,255,.06)');
 
         function closeModal() {
             try { overlay.remove(); } catch (e) { overlay.style.display = 'none'; }
         }
         function dismiss() {
             closeModal();
-            notify('已关闭本次更新提示。');
+            notify(t('updateDismissed'));
         }
         function skipThisVersion() {
             closeModal();
             saveSkippedVersion(latest);
-            notify('已跳过 v' + latest + '；发布下一个版本时会再次提醒。');
+            notify(t('updateSkipped', { v: latest }));
         }
         close.onclick = dismiss;
         later.onclick = dismiss;
@@ -2121,17 +2277,36 @@
         Object.assign(btnWrap.style, {
             display: 'flex', flexDirection: 'column', gap: '3px', overflow: 'hidden',
             transition: 'max-height .35s ease, opacity .3s ease, margin .3s ease',
-            maxHeight: '520px', opacity: '1', marginBottom: '2px'
+            maxHeight: '600px', opacity: '1', marginBottom: '2px'
         });
 
         // ---- 清晰度 / 音质选择菜单 ----
         // ---- Quality / audio selectors ----
         const menu = document.createElement('div');
+        menu.id = 'bili-dl-settings-panel';
         Object.assign(menu.style, {
-            display: 'flex', flexDirection: 'column', gap: '2px',
-            marginBottom: '5px', paddingBottom: '5px',
-            borderBottom: '1px solid rgba(255,255,255,.14)'
+            display: 'none', flexDirection: 'column', gap: '2px',
+            marginTop: '4px', padding: '6px',
+            border: '1px solid rgba(255,255,255,.16)', borderRadius: '6px',
+            backgroundColor: 'rgba(0,0,0,.28)'
         });
+
+        // ---- 设置按钮：收纳所有调整项 / Settings button: groups every adjustment control ----
+        const settingsBtn = document.createElement('button');
+        settingsBtn.id = 'bili-dl-settings-btn';
+        settingsBtn.textContent = t('settings');
+        Object.assign(settingsBtn.style, {
+            backgroundColor: 'rgba(255,255,255,.12)', color: '#fff',
+            border: '1px solid rgba(255,255,255,.22)', borderRadius: '5px',
+            padding: '4px 8px', cursor: 'pointer', fontSize: '10px', fontWeight: '600',
+            width: '100%', textAlign: 'center'
+        });
+        settingsBtn.onclick = () => {
+            const open = menu.style.display !== 'none';
+            menu.style.display = open ? 'none' : 'flex';
+            settingsBtn.textContent = t(open ? 'settings' : 'settingsHide');
+        };
+        btnWrap.appendChild(settingsBtn);
 
         // 关键：不声明 color-scheme 的话，下拉弹层会按系统浅色渲染成白底，
         // Critical: without color-scheme the dropdown popup renders on the system's light background,
@@ -2144,11 +2319,42 @@
             colorScheme: 'dark'
         };
 
-        [{ id: 'bili-dl-vq', kind: 'video', text: '画质' },
-        { id: 'bili-dl-aq', kind: 'audio', text: '音质' }].forEach(({ id, kind, text }) => {
+        // ---- 语言选择 / Language selector ----
+        const langLabel = document.createElement('label');
+        langLabel.id = 'bili-dl-lang-label';
+        langLabel.htmlFor = 'bili-dl-lang';
+        langLabel.textContent = t('langLabel');
+        Object.assign(langLabel.style, {
+            fontSize: '9px', color: 'rgba(255,255,255,.6)', fontWeight: '600', letterSpacing: '.3px'
+        });
+        const langSel = document.createElement('select');
+        langSel.id = 'bili-dl-lang';
+        langSel.name = 'bili-dl-lang';
+        Object.assign(langSel.style, selectStyle);
+        [['zh', '中文 / Chinese'], ['en', 'English / 英文']].forEach(([v, text]) => {
+            const o = document.createElement('option');
+            o.value = v;
+            o.textContent = text;
+            styleOption(o);
+            langSel.appendChild(o);
+        });
+        langSel.value = currentLang();
+        langSel.onchange = () => {
+            updatePrefs({
+                lang: langSel.value === 'en' ? 'en' : 'zh',
+                browserLang: detectBrowserLang()   // 记录基线：浏览器语言没变就尊重手动选择，变了才自动跟随
+            });
+            applyLanguage();
+        };
+        menu.appendChild(langLabel);
+        menu.appendChild(langSel);
+
+        [{ id: 'bili-dl-vq', kind: 'video', key: 'quality' },
+        { id: 'bili-dl-aq', kind: 'audio', key: 'audio' }].forEach(({ id, kind, key }) => {
             const label = document.createElement('label');
+            label.id = id + '-label';
             label.htmlFor = id;
-            label.textContent = text;
+            label.textContent = t(key);
             Object.assign(label.style, {
                 fontSize: '9px', color: 'rgba(255,255,255,.6)', fontWeight: '600', letterSpacing: '.3px'
             });
@@ -2160,7 +2366,7 @@
 
             const auto = document.createElement('option');
             auto.value = 'auto';
-            auto.textContent = '最高（自动）';
+            auto.textContent = t('auto');
             styleOption(auto);
             sel.appendChild(auto);
             sel.value = 'auto';
@@ -2168,7 +2374,7 @@
             sel.onchange = () => {
                 savePrefs(currentSelection('video'), currentSelection('audio'));
                 const shown = sel.options[sel.selectedIndex];
-                console.log(`[bili-dl] ${text}已选：` + (shown ? shown.textContent : sel.value));
+                console.log(`[bili-dl] ${t(key)}已选：` + (shown ? shown.textContent : sel.value));
             };
 
             menu.appendChild(label);
@@ -2181,8 +2387,9 @@
         // A third standalone dropdown: it only affects the "audio" button; the merge flow
         // keeps using the original m4a.
         const afmtLabel = document.createElement('label');
+        afmtLabel.id = 'bili-dl-afmt-label';
         afmtLabel.htmlFor = 'bili-dl-afmt';
-        afmtLabel.textContent = '音频格式';
+        afmtLabel.textContent = t('format');
         Object.assign(afmtLabel.style, {
             fontSize: '9px', color: 'rgba(255,255,255,.6)', fontWeight: '600', letterSpacing: '.3px'
         });
@@ -2191,10 +2398,10 @@
         afmtSel.id = 'bili-dl-afmt';
         afmtSel.name = 'bili-dl-afmt';
         Object.assign(afmtSel.style, selectStyle);
-        [['m4a', 'm4a（原声，最快）'], ['mp3', 'mp3（转码，稍慢）'], ['wav', 'wav（PCM，文件大）']].forEach(([v, t]) => {
+        [['m4a', 'afmtM4a'], ['mp3', 'afmtMp3'], ['wav', 'afmtWav']].forEach(([v, key]) => {
             const o = document.createElement('option');
             o.value = v;
-            o.textContent = t;
+            o.textContent = t(key);
             styleOption(o);
             afmtSel.appendChild(o);
         });
@@ -2211,8 +2418,9 @@
         // ---- 合并方式（自动 / 仅 FFmpeg / 仅浏览器内）----
         // ---- Merge method (auto / FFmpeg only / in-browser only) ----
         const mmLabel = document.createElement('label');
+        mmLabel.id = 'bili-dl-mm-label';
         mmLabel.htmlFor = 'bili-dl-mm';
-        mmLabel.textContent = '合并方式';
+        mmLabel.textContent = t('merge');
         Object.assign(mmLabel.style, {
             fontSize: '9px', color: 'rgba(255,255,255,.6)', fontWeight: '600', letterSpacing: '.3px'
         });
@@ -2221,10 +2429,10 @@
         mmSel.id = 'bili-dl-mm';
         mmSel.name = 'bili-dl-mm';
         Object.assign(mmSel.style, selectStyle);
-        [['auto', '自动（FFmpeg 优先）'], ['ffmpeg', '仅 FFmpeg（需宿主）'], ['mux', '仅浏览器内（不碰 FFmpeg）']].forEach(([v, t]) => {
+        [['auto', 'mmAuto'], ['ffmpeg', 'mmFfmpeg'], ['mux', 'mmMux']].forEach(([v, key]) => {
             const o = document.createElement('option');
             o.value = v;
-            o.textContent = t;
+            o.textContent = t(key);
             styleOption(o);
             mmSel.appendChild(o);
         });
@@ -2239,7 +2447,7 @@
 
         const refreshBtn = document.createElement('button');
         refreshBtn.id = 'bili-dl-refresh';
-        refreshBtn.textContent = '↻ 读取可选档位';
+        refreshBtn.textContent = t('refresh');
         Object.assign(refreshBtn.style, {
             backgroundColor: 'rgba(102,204,255,.20)', color: '#fff',
             border: '1px solid rgba(102,204,255,.35)', borderRadius: '5px',
@@ -2251,7 +2459,7 @@
 
         const pathBtn = document.createElement('button');
         pathBtn.id = 'bili-dl-path';
-        pathBtn.textContent = '📁 检测下载路径';
+        pathBtn.textContent = t('path');
         Object.assign(pathBtn.style, {
             backgroundColor: 'rgba(255,255,255,.10)', color: '#fff',
             border: '1px solid rgba(255,255,255,.25)', borderRadius: '5px',
@@ -2266,8 +2474,8 @@
         hostHint.style.cssText = 'display:none;gap:3px;align-items:center;margin-top:3px';
         const hostBtn = document.createElement('button');
         hostBtn.id = 'bili-dl-host-download';
-        hostBtn.textContent = '⬇ 下载 FFmpeg 宿主';
-        hostBtn.title = '未检测到 native-host；下载后解压并运行 install.cmd';
+        hostBtn.textContent = t('hostDownload');
+        hostBtn.title = t('hostBtnTitle');
         Object.assign(hostBtn.style, {
             flex: '1', backgroundColor: 'rgba(255,153,0,.18)', color: '#ffd28a',
             border: '1px solid rgba(255,153,0,.45)', borderRadius: '5px',
@@ -2277,7 +2485,7 @@
         const hostClose = document.createElement('button');
         hostClose.id = 'bili-dl-host-dismiss';
         hostClose.textContent = '✕';
-        hostClose.title = '关闭本次提示';
+        hostClose.title = t('hostCloseTitle');
         Object.assign(hostClose.style, {
             width: '20px', flex: '0 0 20px', backgroundColor: 'transparent',
             color: 'rgba(255,255,255,.55)', border: '1px solid rgba(255,255,255,.18)',
@@ -2285,7 +2493,7 @@
         });
         hostClose.onclick = () => {
             hideHostHint();
-            notify('已关闭本次 native-host 提示。');
+            notify(t('hostCloseToast'));
         };
         hostHint.appendChild(hostBtn);
         hostHint.appendChild(hostClose);
@@ -2294,9 +2502,9 @@
         btnWrap.appendChild(menu);
 
         const buttons = [
-            { id: 'bili-dl-audio', text: '🎵 音频', color: '#66ccff', hover: '#44aadd', action: downloadAudio },
-            { id: 'bili-dl-video', text: '🎬 仅视频', color: '#EE0000', hover: '#cc0000', action: downloadVideoOnly },
-            { id: 'bili-dl-merge', text: '🎬🎵 视频+音频', color: '#ff6600', hover: '#dd5500', action: downloadVideoWithAudio }
+            { id: 'bili-dl-audio', text: t('btnAudio'), color: '#66ccff', hover: '#44aadd', action: downloadAudio },
+            { id: 'bili-dl-video', text: t('btnVideo'), color: '#EE0000', hover: '#cc0000', action: downloadVideoOnly },
+            { id: 'bili-dl-merge', text: t('btnMerge'), color: '#ff6600', hover: '#dd5500', action: downloadVideoWithAudio }
         ];
 
         buttons.forEach(({ id, text, color, hover, action }) => {
@@ -2330,7 +2538,7 @@
 
         const pauseBtn = document.createElement('button');
         pauseBtn.id = 'bili-dl-pause';
-        pauseBtn.textContent = '⏸ 暂停';
+        pauseBtn.textContent = t('pause');
         Object.assign(pauseBtn.style, ctrlBtnStyle);
         pauseBtn.style.backgroundColor = 'rgba(255,255,255,.18)';
         pauseBtn.onmouseenter = () => { if (!pauseBtn.disabled) pauseBtn.style.backgroundColor = 'rgba(255,255,255,.30)'; };
@@ -2339,7 +2547,7 @@
 
         const cancelBtn = document.createElement('button');
         cancelBtn.id = 'bili-dl-cancel';
-        cancelBtn.textContent = '✕ 取消';
+        cancelBtn.textContent = t('cancel');
         Object.assign(cancelBtn.style, ctrlBtnStyle);
         cancelBtn.style.backgroundColor = 'rgba(255,80,80,.55)';
         cancelBtn.onmouseenter = () => { if (!cancelBtn.disabled) cancelBtn.style.backgroundColor = 'rgba(255,80,80,.75)'; };
@@ -2358,7 +2566,7 @@
         });
         toggleBtn.onclick = () => {
             collapsed = !collapsed;
-            btnWrap.style.maxHeight = collapsed ? '0px' : '520px';
+            btnWrap.style.maxHeight = collapsed ? '0px' : '600px';
             btnWrap.style.opacity = collapsed ? '0' : '1';
             toggleBtn.style.transform = collapsed ? 'rotate(180deg)' : 'rotate(0deg)';
         };

@@ -1,6 +1,6 @@
 ﻿================================================================
   B站视频/音频下载器（火狐版）· INSTRUCTION
-  版本 1.26.0   Firefox 扩展（Manifest V3）
+  版本 1.27.0   Firefox 扩展（Manifest V3）
 ================================================================
 
 
@@ -10,6 +10,10 @@
     · 列出这个视频真实可用的画质 / 音质档位，由你自己挑
     · 三种下载方式：音频（.m4a / .mp3 / .wav）、仅视频、视频+音频（自动合并成单个 MP4）
     · 音频可转成 mp3 或 wav：纯前端转码，不需要 ffmpeg，也不联网
+    · 中英文界面：面板、按钮、状态与提示均支持中文 / English；按浏览器语言自动选择
+      （zh-* → 中文，其余 → 英文），浏览器语言变化时自动跟随；也可在设置里手动切换，
+      浏览器语言不变时尊重手动选择
+    · 画质 / 音质 / 音频格式 / 合并方式 / 语言等调整项收进一个「⚙ 设置」按钮
     · 支持暂停 / 继续 / 取消
     · 自动识别当前正在播放的分P（多P视频不用手填）
     · 可检测下载路径：一键查看宿主实际输出目录与浏览器最近一次下载位置
@@ -82,13 +86,15 @@
 【三、界面说明】
 
   ┌──────────────────────────┐
-  │ 画质  [1080P · H.264 · 1.9M]   │  ← 下拉选择视频档位
-  │ 音质  [192K · AAC · 192kbps]   │  ← 下拉选择音频档位
-  │ 格式  [m4a/mp3/wav]           │  ← 音频格式，只影响「🎵 音频」
-  │ 合并  [自动/FFmpeg/浏览器内]   │  ← 合并方式，默认「自动」
-  │ [↻ 读取可选档位]                │  ← 手动刷新档位列表
-  │ [📁 检测下载路径]              │  ← 查看下载位置
-  │ [⬇ 下载 FFmpeg 宿主] [✕]      │  ← 未安装宿主时出现，可关闭
+  │ [⚙ 设置]                       │  ← 点开/收起下面的调整项（默认收起）
+  │   ├ 语言  [中文/English]        │  ← 界面语言，默认跟随浏览器语言
+  │   ├ 画质  [1080P · H.264 · 1.9M]│  ← 下拉选择视频档位
+  │   ├ 音质  [192K · AAC · 192kbps]│  ← 下拉选择音频档位
+  │   ├ 格式  [m4a/mp3/wav]         │  ← 音频格式，只影响「🎵 音频」
+  │   ├ 合并  [自动/FFmpeg/浏览器内] │  ← 合并方式，默认「自动」
+  │   ├ [↻ 读取可选档位]            │  ← 手动刷新档位列表
+  │   ├ [📁 检测下载路径]          │  ← 查看下载位置
+  │   └ [⬇ 下载 FFmpeg 宿主] [✕]  │  ← 未安装宿主时出现，可关闭
   ├──────────────────────────┤
   │ [🎵 音频]                       │  ← 只下音轨（.m4a / .mp3 / .wav）
   │ [🎬 仅视频]                     │  ← 只下画面（.mp4）
@@ -109,19 +115,23 @@
 
 【四、怎么用】
 
-  1. 打开视频页，等右下角档位列表自动填好
+  1. 打开视频页，等右下角面板出现；想调整选项就点「⚙ 设置」展开
 
-  2. （可选）在画质/音质下拉里选想要的档位
+  2. （可选）在「语言」里选中文 / English
+     不选就按浏览器语言自动判断（中文浏览器 → 中文，其余 → 英文）；
+     按浏览器语言自动判断，浏览器语言变了会自动跟随；手动选一次在语言不变期间一直有效
+
+  3. （可选）在画质/音质下拉里选想要的档位
      不选就按「最高（自动）」——它按「档位优先、同档挑码率最高」来选
 
-  3. （可选）在「音频格式」下拉里选 m4a、mp3 或 wav
+  4. （可选）在「音频格式」下拉里选 m4a、mp3 或 wav
      （这个选项只影响「🎵 音频」按钮，见下方说明）
 
-  4. 点「🎬🎵 视频+音频」
+  5. 点「🎬🎵 视频+音频」
      → 按钮会依次显示「解析中…」「下载中 xx%」「合并中」
      → 完成后右下角浮层告诉你文件在哪、多大多清晰（点一下可关）
 
-  5. 中途想停：点「⏸ 暂停」（变成「▶ 继续」），或点「✕ 取消」
+  6. 中途想停：点「⏸ 暂停」（变成「▶ 继续」），或点「✕ 取消」
 
   一次只能跑一个下载任务，下载期间三个下载按钮都会被禁用。
 
@@ -419,6 +429,7 @@
   muxer.js          分片 MP4 重封装（浏览器内合并用）
   wav.js            WAV（16-bit PCM）编码（wav 格式转码用）
   update.js         更新检测与版本比较（纯逻辑）
+  i18n.js           中英文文案、浏览器语言检测（纯逻辑）
   vendor/           第三方库：lamejs（mp3 编码，LGPL-3.0）
                     内含许可证全文与来源说明，见 vendor\README.txt
   native-host/      可选：原生 FFmpeg 合并宿主
@@ -432,7 +443,7 @@
 
 ================================================================
   Bilibili Video & Audio Downloader (Firefox edition) · INSTRUCTION
-  Version 1.26.0   Firefox extension (Manifest V3)
+  Version 1.27.0   Firefox extension (Manifest V3)
 ================================================================
 
 
@@ -442,6 +453,11 @@
     · lists the quality / audio tiers this video really offers, for you to pick from
     · three download modes: audio only (.m4a / .mp3 / .wav), video only, video + audio (auto-merged into one MP4)
     · audio can be transcoded to mp3 or wav purely in the browser -- no ffmpeg, no network
+    · Chinese / English UI: the panel, buttons, status and prompts support both 中文 / English;
+      on first use it follows the browser language (zh-* -> Chinese, anything else -> English);
+      you can also switch manually in Settings, and your choice is remembered
+    · quality / audio / audio format / merge method / language adjustments are grouped under
+      one "⚙ Settings" button
     · pause / resume / cancel
     · detects the part you are watching (no manual entry for multi-part videos)
     · download-path detection: one click shows the host's actual output folder and the browser's
@@ -516,13 +532,15 @@
 【3. The panel】
 
   ┌──────────────────────────┐
-  │ Quality [1080P · H.264 · 1.9M]  │  <- pick the video tier
-  │ Audio   [192K · AAC · 192kbps]  │  <- pick the audio tier
-  │ Format  [m4a/mp3/wav]          │  <- audio format; affects "audio" only
-  │ Merge   [auto / FFmpeg / mux]  │  <- how video+audio merge (default: auto)
-  │ [↻ refresh tiers]              │  <- refresh the tier list manually
-  │ [📁 detect download path]      │  <- show host / browser download paths
-  │ [⬇ download FFmpeg host] [✕]  │  <- when no host is installed; closable
+  │ [⚙ Settings]                  │  <- click to expand / collapse the adjustments (collapsed by default)
+  │   ├ Language [中文/English]    │  <- UI language, follows the browser language by default
+  │   ├ Quality [1080P · H.264]    │  <- pick the video tier
+  │   ├ Audio   [192K · AAC]       │  <- pick the audio tier
+  │   ├ Format  [m4a/mp3/wav]      │  <- audio format; affects "audio" only
+  │   ├ Merge   [auto / FFmpeg / mux]│ <- how video+audio merge (default: auto)
+  │   ├ [↻ refresh tiers]          │  <- refresh the tier list manually
+  │   ├ [📁 detect download path]  │  <- show host / browser download paths
+  │   └ [⬇ download FFmpeg host] [✕]│ <- when no host is installed; closable
   ├──────────────────────────┤
   │ [🎵 audio]                     │  <- audio only (.m4a / .mp3 / .wav)
   │ [🎬 video only]                │  <- video only (.mp4)
@@ -543,20 +561,25 @@
 
 【4. Usage】
 
-  1. Open a video page and wait for the tier list to fill in
+  1. Open a video page; click "⚙ Settings" to expand the adjustments if you want to change them
 
-  2. (Optional) pick the tier you want from the quality / audio dropdowns
+  2. (Optional) pick the language, Chinese / English
+        It follows the browser language (Chinese browser -> Chinese, otherwise English) and
+        auto-switches when the browser language changes; a manual pick is honoured while the
+        browser language stays the same
+
+  3. (Optional) pick the tier you want from the quality / audio dropdowns
         Skip it and "best (auto)" applies: highest tier first, then highest bitrate within that tier
 
-  3. (Optional) pick an audio format (m4a, mp3 or wav)
+  4. (Optional) pick an audio format (m4a, mp3 or wav)
         (this only affects the "🎵 audio" button -- see below)
 
-  4. Click "🎬🎵 video + audio"
+  5. Click "🎬🎵 video + audio"
         -> the button shows "parsing…", "downloading xx%", then "merging"
         -> a bottom-right notice tells you where the file is, its size and its specification
            (click it to dismiss)
 
-  5. To stop midway: click "⏸ pause" (it becomes "▶ resume") or "✕ cancel"
+  6. To stop midway: click "⏸ pause" (it becomes "▶ resume") or "✕ cancel"
 
   Only one download runs at a time; all three download buttons are disabled while it does.
 
@@ -871,6 +894,7 @@
   muxer.js          fragmented-MP4 remux (used for in-browser merging)
   wav.js            WAV (16-bit PCM) encoder (used for wav transcoding)
   update.js         update check / version compare (pure logic)
+  i18n.js           Chinese / English UI strings and browser-language detection (pure logic)
   vendor/           third-party: lamejs (mp3 encoder, LGPL-3.0)
                     with its full licence and provenance notes, see vendor\README.txt
   native-host/      optional: native FFmpeg merge host

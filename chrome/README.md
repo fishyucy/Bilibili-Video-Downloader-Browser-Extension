@@ -28,6 +28,8 @@
 
 ## 特性
 
+- **中英文界面**：面板、按钮、状态与提示均支持中文 / English；按浏览器语言自动选择（`zh-*` → 中文，其余 → 英文），浏览器语言变化时自动跟随；也可在设置里手动切换，浏览器语言不变时尊重手动选择
+- **设置收纳**：画质 / 音质 / 音频格式 / 合并方式 / 语言等调整项收进一个「⚙ 设置」按钮，主面板只留下载与暂停 / 取消
 - **档位菜单**：按「档位 + 编码」分开列出，兼容性优先选 H.264，省流量选 HEVC / AV1
 - **三种下载**：仅音频（`.m4a` / `.mp3` / `.wav`）、仅视频（`.mp4`）、视频+音频（自动合并成单个 MP4）
 - **合并方式可选**（同时作用于 mp3 / wav 转码）：可在面板上选「自动（FFmpeg 优先，失败自动回退）/ 仅 FFmpeg / 仅浏览器内（不碰 FFmpeg）」
@@ -139,11 +141,12 @@ quality.js         画质 / 音质选择逻辑（档位排序、编码识别）
 wbi.js             B 站 WBI 签名
 muxer.js           分片 MP4（fMP4）双轨重封装
 wav.js             WAV（16-bit PCM）编码
+i18n.js            中英文文案与浏览器语言检测（纯逻辑）
 vendor/            第三方库：lamejs（mp3 编码，LGPL-3.0）+ 其许可证与来源说明
 INSTRUCTION.txt    完整使用说明书
 LICENSE            GPL-3.0 许可全文
 native-host/       可选：原生 FFmpeg 合并宿主（含单独说明）
-tests/             Node 测试脚本（选流逻辑 / WBI 签名 / 重封装）
+tests/             Node 测试脚本（选流逻辑 / WBI 签名 / 重封装 / 更新 / 中英文案）
 ```
 
 ## 常见问题
@@ -207,6 +210,8 @@ Unlike "sniff the highest quality" tools it does not guess: whatever the API han
 
 ## Features
 
+- **Chinese / English UI** — the panel, buttons, status and prompts support both 中文 / English. The language follows the browser (`zh-*` → Chinese, anything else → English) and auto-switches when the browser language changes; you can also switch manually in Settings, which is honoured while the browser language stays the same
+- **Settings button** — quality / audio / audio format / merge method / language adjustments are grouped under one "⚙ Settings" button, leaving the main panel with just the download and pause / cancel controls
 - **Tier menu** — one entry per "tier + codec"; pick H.264 for compatibility or HEVC / AV1 to save bandwidth
 - **Three download modes** — audio only (`.m4a` / `.mp3` / `.wav`), video only (`.mp4`), or video + audio merged into a single MP4
 - **Selectable merge method** (also governs mp3 / wav transcoding) — pick auto (prefer FFmpeg, fall back) / FFmpeg only / in-browser only (never touches FFmpeg) from the panel
@@ -323,11 +328,12 @@ quality.js         Tier selection logic (ordering, codec detection)
 wbi.js             Bilibili WBI signature
 muxer.js           Fragmented-MP4 (fMP4) two-track remux
 wav.js             WAV (16-bit PCM) encoder
+i18n.js            Chinese / English UI strings and browser-language detection (pure logic)
 vendor/            Third-party: lamejs (mp3 encoder, LGPL-3.0) plus its licence and provenance notes
 INSTRUCTION.txt    Full manual
 LICENSE            Full text of the GPL-3.0
 native-host/       Optional native FFmpeg host (own manual inside)
-tests/             Node test scripts (tier logic / WBI / remux)
+tests/             Node test scripts (tier logic / WBI / remux / update / i18n)
 ```
 
 ## FAQ
